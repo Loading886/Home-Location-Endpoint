@@ -1,5 +1,9 @@
 import json
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -102,6 +106,22 @@ class InstallAssetTests(unittest.TestCase):
         self.assertIn("apt-cache show qrencode", installer)
         self.assertIn("optional qrencode installation failed", installer)
         self.assertIn("profile download URLs will still work", installer)
+
+    def test_installed_cli_starts_without_the_source_package(self):
+        source = ROOT / "src" / "home_location_endpoint" / "cli.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            standalone = Path(temporary) / "hle"
+            shutil.copy2(source, standalone)
+            result = subprocess.run(
+                [sys.executable, "-I", str(standalone), "--help"],
+                cwd=temporary,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("usage: hle", result.stdout)
 
     def test_service_and_log_limits_are_present(self):
         service = (ROOT / "systemd" / "home-location-endpoint.service").read_text(
