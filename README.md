@@ -31,6 +31,8 @@
 - 内核可用时使用显式 IPv4/IPv6 双栈监听；只支持 IPv4 的主机自动保持 IPv4 监听。
 - 对定位域名阻断 QUIC/UDP 443，促使其回退到能够被限定拦截器处理的 TCP；普通域名不受影响。
 - 安装器不修改 SSH 端口、SSH 密钥、密码，也不会主动启用原本关闭的 UFW。
+- `sudo hle pause` 可暂停坐标改写并返回 Apple 原始定位响应，`sudo hle resume` 即时恢复；
+  代理节点和普通流量不中断，状态跨重启保留。
 - 重复安装或执行 `sudo hle relocate` 会重新随机选点；完整模式始终保持固定 SNI。
 
 ## 工作方式
@@ -123,6 +125,8 @@ TCP 调优或防火墙规则。
 ```bash
 sudo hle verify
 sudo hle status
+sudo hle pause
+sudo hle resume
 sudo hle show-link
 sudo hle profile
 sudo hle profile serve
@@ -132,6 +136,10 @@ sudo hle uninstall
 
 `hle show-link` 只适用于完整模式。`hle` 命令是 `/usr/local/sbin/hle`，需要 root 运行；
 普通用户的 PATH 可能不含 `/usr/local/sbin`，因此上面统一用 `sudo`。
+
+`hle pause` 不会停止 Xray 或定位拦截器，也不会改变代理端口。它让已进入拦截器的 Apple 定位
+请求继续访问原始 Apple host，并把响应不作坐标改写地返回；`hle resume` 恢复改写。切换立即对
+新请求生效，无需重启服务或重新连接节点，状态保存在 `/var/lib/home-location-endpoint/modifier.state`。
 
 `hle profile serve` 默认在 TCP `18080` 启动带随机令牌的一次性 HTTP 下载，100 分钟后或首次
 成功下载后自动退出，不提供目录浏览，也不会暴露 CA 私钥。UFW、云安全组、NAT 或 Realm 不会

@@ -35,6 +35,8 @@ SYSCTL_FILE = Path("/etc/sysctl.d/99-home-location-endpoint.conf")
 PROFILE_NAME = "Home-Location-Endpoint-CA.mobileconfig"
 PROFILE_PORT = 18080
 PROFILE_TIMEOUT_MINUTES = 100
+MODIFIER_STATE_NAME = "modifier.state"
+MODIFIER_STATES = {"active", "paused"}
 PROFILE_HOST_RE = re.compile(
     r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"
@@ -59,6 +61,74 @@ def install_mode():
     return "full" if (ETC / "node-uri.txt").exists() else "modifier-only"
 
 
+def modifier_state():
+    path = STATE / MODIFIER_STATE_NAME
+    try:
+        value = path.read_text(encoding="ascii").strip()
+    except FileNotFoundError:
+        return "active"
+    if value not in MODIFIER_STATES:
+        raise ValueError("invalid modifier state in %s" % path)
+    return value
+
+
+def _write_modifier_state(value):
+    if value not in MODIFIER_STATES:
+        raise ValueError("invalid modifier state: %s" % value)
+    STATE.mkdir(parents=True, exist_ok=True)
+    temporary = STATE / (".%s.%d.%s" % (
+        MODIFIER_STATE_NAME, os.getpid(), secrets.token_hex(8)
+    ))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = None
+    try:
+        descriptor = os.open(temporary, flags, 0o600)
+        os.write(descriptor, (value + "\n").encode("ascii"))
+        os.fchmod(descriptor, 0o644)
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = None
+        os.replace(temporary, STATE / MODIFIER_STATE_NAME)
+        directory = os.open(STATE, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _set_modifier_state(value):
+    if os.geteuid() != 0:
+        raise SystemExit("hle %s must run as root" % (
+            "resume" if value == "active" else "pause"
+        ))
+    with operation_lock():
+        current = modifier_state()
+        if current != value:
+            _write_modifier_state(value)
+    if value == "paused":
+        print("Location modification paused; proxy traffic remains active.")
+        print("定位修改已暂停；代理流量保持正常，Apple 原始定位响应将直接返回。")
+    else:
+        print("Location modification active; Apple location responses will be rewritten.")
+        print("定位修改已恢复；Apple 定位响应将继续改写。")
+
+
+def command_pause(_args):
+    _set_modifier_state("paused")
+
+
+def command_resume(_args):
+    _set_modifier_state("active")
+
+
 @contextmanager
 def operation_lock():
     try:
@@ -80,6 +150,7 @@ def command_status(_args):
     source = location.get("source", {})
     preset = location["presets"][location["active"]]
     print("Mode: %s" % mode)
+    print("Modification: %s" % modifier_state())
     print("Location: %s, %s" % (source.get("city", "unknown"), source.get("country_code", "--")))
     print("Selection: %s" % source.get("selection", "unknown"))
     print("Selected at: %s" % source.get("selected_at", "unknown"))
@@ -381,6 +452,8 @@ def managed_permissions_are_safe(mode):
         (ETC / "ca.crt", 0, 0, 0o644),
         (ETC / "ca.der", 0, 0, 0o644),
         (ETC / "Home-Location-Endpoint-CA.mobileconfig", 0, 0, 0o644),
+        (STATE, 0, home_gid, 0o750),
+        (STATE / MODIFIER_STATE_NAME, 0, 0, 0o644),
     ]
     if mode == "full":
         checks.append((ETC / "node-uri.txt", 0, 0, 0o600))
@@ -440,6 +513,7 @@ def command_verify(_args):
         print("%s: %s" % (label, "OK" if okay else "FAIL"))
         failures += 0 if okay else 1
     function_checks = [
+        (lambda: modifier_state() in MODIFIER_STATES, "modifier state"),
         (location_is_valid, "location config"),
         (profile_matches_ca, "iOS profile matches CA"),
         (certificate_key_matches, "leaf key pair"),
@@ -711,6 +785,14 @@ def parse_args():
     subparsers = parser.add_subparsers(dest="command", required=True)
     status = subparsers.add_parser("status", help="show services and selected city")
     status.set_defaults(func=command_status)
+    pause = subparsers.add_parser(
+        "pause", help="temporarily return unmodified Apple location responses"
+    )
+    pause.set_defaults(func=command_pause)
+    resume = subparsers.add_parser(
+        "resume", help="resume rewriting Apple location responses"
+    )
+    resume.set_defaults(func=command_resume)
     relocate = subparsers.add_parser("relocate", help="choose another random point in the IP city")
     relocate.add_argument("--fallback-radius-m", type=float, default=3000)
     relocate.set_defaults(func=command_relocate)

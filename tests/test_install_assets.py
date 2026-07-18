@@ -128,6 +128,12 @@ class InstallAssetTests(unittest.TestCase):
         self.assertIn("if ! interactive_output", installer)
         self.assertIn("if ! serve_profile_download", installer)
 
+    def test_installer_preserves_a_valid_modifier_state(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn('if [[ ! -f "${STATE_DIR}/modifier.state" ]]', installer)
+        self.assertIn("active|paused", installer)
+        self.assertIn('chmod 0644 "${STATE_DIR}/modifier.state"', installer)
+
     def test_qrencode_is_installed_for_profile_handoff(self):
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("apt-cache show qrencode", installer)

@@ -58,11 +58,11 @@ sysctl 调优在下次重启前仍然生效。卸载不会删除已装到 iPhone
 不要用未经审查的 `rm -rf` 清理混合环境；如果安装被强制中断留下半套状态，先按下文
 “事务与失败边界”排查后再决定用 `hle uninstall` 或手动恢复备份。
 
-例如固定安装 `v0.1.8`：
+例如固定安装 `v0.1.9`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.8/install.sh \
-  | sudo env HLE_VERSION=v0.1.8 bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.9/install.sh \
+  | sudo env HLE_VERSION=v0.1.9 bash
 ```
 
 ## 事务与失败边界
@@ -90,11 +90,26 @@ sudo find /etc/home-location-endpoint /opt/home-location-endpoint \
 ```bash
 sudo hle verify
 sudo hle status
+sudo hle pause
+sudo hle resume
 sudo hle profile serve
 sudo systemctl status home-location-endpoint xray --no-pager
 sudo journalctl -u home-location-endpoint -u xray --since '30 minutes ago' --no-pager
 sudo ss -lntup
 ```
+
+### 暂停与恢复定位修改
+
+```bash
+sudo hle pause
+sudo hle status
+sudo hle resume
+```
+
+暂停只关闭坐标改写：代理服务、普通流量和定位请求本身仍保持可用，Apple 原始响应会直接返回。
+恢复对后续请求立即生效，两种操作都不重启 Xray 或拦截器。状态跨重启和重复安装保留；如果
+`hle verify` 报告 `modifier state: FAIL`，先检查
+`/var/lib/home-location-endpoint/modifier.state` 是否为 root 所有、内容是否仅为 `active` 或 `paused`。
 
 ### 临时下载 CA 描述文件
 

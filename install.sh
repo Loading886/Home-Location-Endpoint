@@ -207,6 +207,7 @@ preflight_common_state() {
     for path in \
         "${ETC_DIR}/mode" "${ETC_DIR}/install.env" \
         "${ETC_DIR}/location.json" "${ETC_DIR}/jitter.seed" \
+        "${STATE_DIR}/modifier.state" \
         "${ETC_DIR}/ca.crt" "${ETC_DIR}/ca.der" \
         "${ETC_DIR}/leaf.crt" "${ETC_DIR}/leaf.key" \
         "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig" \
@@ -749,6 +750,15 @@ create_accounts_and_directories() {
     fi
     chown root:home-location "${ETC_DIR}/jitter.seed"
     chmod 0640 "${ETC_DIR}/jitter.seed"
+    if [[ ! -f "${STATE_DIR}/modifier.state" ]]; then
+        printf 'active\n' > "${STATE_DIR}/modifier.state"
+    fi
+    case "$(<"${STATE_DIR}/modifier.state")" in
+        active|paused) ;;
+        *) die "invalid persistent modifier state" ;;
+    esac
+    chown root:root "${STATE_DIR}/modifier.state"
+    chmod 0644 "${STATE_DIR}/modifier.state"
 }
 
 select_random_location() {
@@ -987,6 +997,10 @@ normalize_managed_permissions() {
     chmod 0644 "${ETC_DIR}/mode" "${ETC_DIR}/ca.crt" "${ETC_DIR}/ca.der" \
         "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig"
     chmod 0600 "${ETC_DIR}/install.env" "${MARKER}"
+    chown root:home-location "${STATE_DIR}"
+    chmod 0750 "${STATE_DIR}"
+    chown root:root "${STATE_DIR}/modifier.state"
+    chmod 0644 "${STATE_DIR}/modifier.state"
     chown root:home-location \
         "${ETC_DIR}/location.json" "${ETC_DIR}/jitter.seed" \
         "${ETC_DIR}/leaf.crt" "${ETC_DIR}/leaf.key"
@@ -1092,6 +1106,8 @@ Next / 下一步:
      运行 'sudo hle verify' 和 'sudo hle status' 检查本机状态。
   4. Run 'sudo hle relocate' whenever you want another random point in the same IP city.
      需要在同一出口城市内更换随机坐标时，运行 'sudo hle relocate'。
+  5. Run 'sudo hle pause' to return real Apple responses; use 'sudo hle resume' to rewrite again.
+     需要暂停定位修改时运行 'sudo hle pause'；再次运行 'sudo hle resume' 恢复改写。
 
 Remove everything later with: sudo hle uninstall
 以后如需完整卸载，运行：sudo hle uninstall
@@ -1122,6 +1138,8 @@ Next / 下一步:
      在承载手机流量的入站上启用 TLS/HTTP sniffing，并设置 routeOnly。
   4. Run 'sudo hle verify', then test that only the documented Apple hosts reach loopback:10451.
      运行 'sudo hle verify'，并确认只有文档列出的 Apple 域名进入 127.0.0.1:10451。
+  5. Use 'sudo hle pause' and 'sudo hle resume' to switch rewriting off and on without a restart.
+     使用 'sudo hle pause' 和 'sudo hle resume' 即时暂停或恢复改写，无需重启。
 
 Remove everything this mode installed (it never touches your proxy core) with: sudo hle uninstall
 完整卸载本模式安装的内容（不会触碰你的代理核心）：sudo hle uninstall
