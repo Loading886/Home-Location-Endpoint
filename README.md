@@ -118,12 +118,16 @@ TCP 调优或防火墙规则。
 
 ## iPhone 设置
 
-1. 安全地把 `.mobileconfig` 复制到 iPhone，核对安装器输出的 CA SHA-256 指纹。
-2. 安装描述文件。
-3. 在“设置 → 通用 → 关于本机 → 证书信任设置”中为该 CA 开启完全信任。
-4. 完整模式把 VLESS URI 导入支持 REALITY + Vision 的客户端，并使用全局 TUN/VPN 模式连接；
+1. 在服务器运行 `sudo hle profile serve`，用 iPhone Safari 打开输出的随机下载地址或扫描终端
+   二维码。链接默认有效 100 分钟，并在首次成功下载后立即关闭。仅定位模式或 NAT/Realm 场景
+   如未记录手机可达地址，使用 `--host <手机可访问地址>`。
+2. 核对终端输出的 CA SHA-256 指纹。该临时服务使用 HTTP，只应短时开放下载端口；如需更强的
+   传输保护，请改用 SCP、SFTP 或自行配置的可信 HTTPS。
+3. 安装描述文件。
+4. 在“设置 → 通用 → 关于本机 → 证书信任设置”中为该 CA 开启完全信任。
+5. 完整模式把 VLESS URI 导入支持 REALITY + Vision 的客户端，并使用全局 TUN/VPN 模式连接；
    仅定位模式按[接线文档](docs/MODIFIER-ONLY.md)接入自己的代理。
-5. 不再使用时，删除描述文件并关闭/删除该代理节点。
+6. 不再使用时，删除描述文件并关闭/删除该代理节点。
 
 只安装 CA、只配置系统 DNS、或只让浏览器走代理都不足以保证 Apple 定位请求经过落地机。
 节点 URI 也不会替客户端配置远程 DNS、VPN 排除项或防止 App 绕过 VPN；这些属于客户端能力。
@@ -135,12 +139,18 @@ sudo hle verify
 sudo hle status
 sudo hle show-link
 sudo hle profile
+sudo hle profile serve
 sudo hle relocate
 sudo hle uninstall
 ```
 
 `hle show-link` 只适用于完整模式。`hle` 命令是 `/usr/local/sbin/hle`，需要 root 运行；
 普通用户的 PATH 可能不含 `/usr/local/sbin`，因此上面统一用 `sudo`。
+
+`hle profile serve` 默认在 TCP `18080` 启动带随机令牌的一次性 HTTP 下载，100 分钟后或首次
+成功下载后自动退出，不提供目录浏览，也不会暴露 CA 私钥。UFW、云安全组、NAT 或 Realm 不会
+被自动修改；需要临时让手机能够到达该端口。可用 `--port`、`--host`、`--bind`、
+`--timeout-minutes` 和 `--no-qr` 调整行为。
 
 `sudo hle uninstall` 停止并删除本项目安装的服务、受管文件与受限 CA，并在确认后执行
 （脚本化可加 `--yes`）。完整模式还会删除受管的 Xray、其配置和 TCP sysctl 文件；仅定位模式

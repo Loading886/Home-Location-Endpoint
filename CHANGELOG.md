@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.4 - 2026-07-18
+
+- Add `hle profile serve`, a tokenized one-download HTTP handoff for the iOS CA
+  profile. It defaults to a 100-minute lifetime, closes after the first successful
+  download, serves the correct Apple configuration-profile MIME type, prints the
+  CA fingerprint, and shows a terminal QR code when the optional `qrencode`
+  package is available. Failure to install that helper does not block the endpoint.
+- Add `--host`, `--bind`, `--port`, `--timeout-minutes`, and `--no-qr` controls;
+  document the temporary-HTTP and firewall/NAT boundaries in the bilingual result.
+
 ## 0.1.3 - 2026-07-18
 
 - Add concise Chinese guidance alongside English for source download, interactive
