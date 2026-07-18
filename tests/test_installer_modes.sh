@@ -103,6 +103,34 @@ if (
 fi
 
 (
+    interactive_output() { return 0; }
+    handoff_called=0
+    serve_profile_download() {
+        handoff_called=1
+        return 0
+    }
+    auto_serve_profile >/dev/null
+    [[ "${handoff_called}" -eq 1 ]]
+)
+
+(
+    interactive_output() { return 1; }
+    handoff_called=0
+    serve_profile_download() {
+        handoff_called=1
+        return 0
+    }
+    auto_serve_profile >/dev/null
+    [[ "${handoff_called}" -eq 0 ]]
+)
+
+(
+    interactive_output() { return 0; }
+    serve_profile_download() { return 7; }
+    auto_serve_profile >/dev/null 2>&1
+)
+
+(
     group_exists=0
     getent() {
         if [[ "$1" == "group" && "${group_exists}" -eq 1 ]]; then

@@ -14,6 +14,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallAssetTests(unittest.TestCase):
+    def test_package_and_project_versions_match(self):
+        project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        package = (
+            ROOT / "src" / "home_location_endpoint" / "__init__.py"
+        ).read_text(encoding="utf-8")
+        project_version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE)
+        package_version = re.search(r'^__version__ = "([^"]+)"$', package, re.MULTILINE)
+        self.assertIsNotNone(project_version)
+        self.assertIsNotNone(package_version)
+        self.assertEqual(project_version.group(1), package_version.group(1))
+
     def test_reality_sni_pool_is_unique_and_valid(self):
         entries = [
             line.strip()
@@ -110,6 +121,16 @@ class InstallAssetTests(unittest.TestCase):
             "sudo hle profile serve",
         ):
             self.assertIn(message, installer)
+
+    def test_profile_handoff_runs_only_after_the_install_commits(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        commit = installer.index("TRANSACTION_COMMITTED=1")
+        result = installer.index("show_result", commit)
+        handoff = installer.index("auto_serve_profile", result)
+        self.assertLess(commit, result)
+        self.assertLess(result, handoff)
+        self.assertIn("if ! interactive_output", installer)
+        self.assertIn("if ! serve_profile_download", installer)
 
     def test_qrencode_is_installed_for_profile_handoff(self):
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")

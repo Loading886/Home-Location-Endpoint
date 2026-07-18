@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7 - 2026-07-18
+
+- Automatically start the one-time CA profile download after a successful
+  interactive installation, so users no longer need to run `hle profile serve`
+  manually. Non-interactive deployments skip the blocking handoff and print the
+  command for later use; handoff failures never roll back a completed endpoint.
+
 ## 0.1.6 - 2026-07-18
 
 - Silence the expected `systemctl is-active/is-enabled` stderr emitted while a
