@@ -179,11 +179,15 @@ begin_transaction() {
             /etc/sysctl.d/99-home-location-endpoint.conf
         )
     fi
-    systemctl is-active --quiet home-location-endpoint.service && HOME_WAS_ACTIVE=1
-    systemctl is-enabled --quiet home-location-endpoint.service && HOME_WAS_ENABLED=1
+    systemctl is-active --quiet home-location-endpoint.service \
+        >/dev/null 2>&1 && HOME_WAS_ACTIVE=1
+    systemctl is-enabled --quiet home-location-endpoint.service \
+        >/dev/null 2>&1 && HOME_WAS_ENABLED=1
     if [[ "${MODE}" == "full" ]]; then
-        systemctl is-active --quiet xray.service && XRAY_WAS_ACTIVE=1
-        systemctl is-enabled --quiet xray.service && XRAY_WAS_ENABLED=1
+        systemctl is-active --quiet xray.service \
+            >/dev/null 2>&1 && XRAY_WAS_ACTIVE=1
+        systemctl is-enabled --quiet xray.service \
+            >/dev/null 2>&1 && XRAY_WAS_ENABLED=1
     fi
     for index in "${!ROLLBACK_PATHS[@]}"; do
         path="${ROLLBACK_PATHS[${index}]}"

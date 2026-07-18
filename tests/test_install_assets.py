@@ -59,6 +59,16 @@ class InstallAssetTests(unittest.TestCase):
         self.assertLess(commit, apply_sysctl)
         self.assertLess(commit, firewall)
 
+    def test_missing_service_state_probes_are_silent(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        for service in ("home-location-endpoint.service", "xray.service"):
+            for state in ("is-active", "is-enabled"):
+                self.assertRegex(
+                    installer,
+                    rf"systemctl {state} --quiet {re.escape(service)} "
+                    rf"\\\n\s+>/dev/null 2>&1",
+                )
+
     def test_bootstrap_version_is_validated_before_package_changes(self):
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")
         bootstrap = installer.index("bootstrap_if_needed()")
