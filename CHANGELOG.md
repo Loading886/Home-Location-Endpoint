@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6 - 2026-07-18
+
+- Silence the expected `systemctl is-active/is-enabled` stderr emitted while a
+  first install records rollback state before its service units exist. Return
+  codes are still retained, so transaction restoration behavior is unchanged.
+
 ## 0.1.5 - 2026-07-18
 
 - Fix the installed `/usr/local/sbin/hle` failing at startup because v0.1.4
