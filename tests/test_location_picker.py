@@ -108,6 +108,17 @@ class LocationPickerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             picker.validate_ip_location(broken)
 
+    def test_rejects_missing_coordinates_cleanly(self):
+        broken = {key: value for key, value in IP_DATA.items()
+                  if key not in ("latitude", "longitude")}
+        with self.assertRaisesRegex(ValueError, "invalid coordinate"):
+            picker.validate_ip_location(broken)
+
+    def test_rejects_null_coordinates_cleanly(self):
+        broken = dict(IP_DATA, latitude=None, longitude=1.0)
+        with self.assertRaisesRegex(ValueError, "invalid coordinate"):
+            picker.validate_ip_location(broken)
+
     def test_rejects_provider_control_characters(self):
         broken = dict(IP_DATA)
         broken["city"] = "Example\x1b[31mCity"

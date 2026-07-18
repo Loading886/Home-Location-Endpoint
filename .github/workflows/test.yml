@@ -29,5 +29,5 @@ jobs:
         run: bash tests/integration_xray.sh
       - name: Public-tree secret and private-topology guard
         run: |
-          ! grep -RInE '[K]Cloud|mobile-[k]cloud|150[.]158[.]13[.]40|8771876423[:]|BEGIN ([O]PENSSH|[R]SA|[E]C) PRIVATE KEY' \
+          ! grep -RInE '[K]Cloud|mobile-[k]cloud|150[.]158[.]13[.]40|8771876423[:]|BEGIN [A-Z0-9 ]*[P]RIVATE KEY' \
             --exclude-dir=.git .

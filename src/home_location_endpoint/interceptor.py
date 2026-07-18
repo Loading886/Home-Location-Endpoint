@@ -575,13 +575,11 @@ def handle(conn, addr, ctx):
                         % (upstream, operational_path(path), count, anchor_state,
                            anchor_source, len(new_body)))
                 elif anchor_source == gx.NO_FIX_SOURCE:
-                    # The decoder proved that every known Location is Apple's
-                    # (-180, -180) no-fix sentinel (or the block is empty).
-                    # Preserve that honest no-fix result instead of creating a
-                    # batch of identical synthetic coordinates. Unknown or
-                    # malformed unanchored responses never reach this branch.
+                    # Non-empty sentinel batches are synthesized above and have
+                    # count > 0. This branch is the proven empty no-fix response;
+                    # unknown or malformed unanchored responses never reach it.
                     resp_body = new_body
-                    log("TRANSLATE_NOFIX_PASSTHROUGH host=%s path=%s bytes=%d"
+                    log("TRANSLATE_NOFIX_EMPTY host=%s path=%s bytes=%d"
                         % (upstream, operational_path(path), len(new_body)))
                 else:
                     if FAIL_CLOSED and len(resp_body) > 10:

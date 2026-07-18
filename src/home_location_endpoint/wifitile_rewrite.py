@@ -51,6 +51,15 @@ def _rewrite_location(payload, transform):
     lat, lon = _location_values(fields)
     if lat is None or lon is None:
         return payload, False
+    if not gx._valid_coordinate(lat, lon):
+        # sfixed32*1e7 physically permits +/-214 deg, so a tile can carry an
+        # out-of-range or (-180,-180) no-fix marker. Such a point is excluded
+        # from the anchor (translate_wifi_tile line filtering the WGS84 box) and
+        # must not be translated: feeding it to translate_coordinate raises
+        # "outside valid range", and collapsing it to a real point would
+        # fabricate a fix. Leave the marker bytes untouched, mirroring the
+        # gsloc_rewrite was_valid handling.
+        return payload, False
     lat, lon = transform(lat, lon)
 
     out = bytearray()

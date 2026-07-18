@@ -29,15 +29,80 @@ class WlocRewriteTests(unittest.TestCase):
         _header, block = gx.split_response(replacement)
         self.assertEqual(gx.header_block_length(replacement[:10]), len(block))
 
-    def test_no_fix_batch_is_not_fabricated(self):
+    def test_all_sentinel_batch_becomes_centered_non_degenerate_cluster(self):
+        target = (40.0, -74.0)
         body = gx.build_response([
-            gx.build_wifi("aa:bb:cc:dd:ee:01", gx.build_sentinel_location(100))
+            gx.build_wifi(
+                "aa:bb:cc:dd:ee:%02x" % index,
+                gx.build_sentinel_location(-1),
+            )
+            for index in range(24)
         ])
-        replacement, count, anchor, source = gx.translate_response(body, 40.0, -74.0)
+        replacement, count, anchor, source = gx.translate_response(
+            body, *target, accuracy=25
+        )
+        repeated = gx.translate_response(body, *target, accuracy=25)[0]
+        points = [
+            (entry["lat"], entry["lon"])
+            for entry in gx.decode_response(replacement)
+        ]
+        self.assertEqual((count, anchor, source), (24, None, gx.NO_FIX_SOURCE))
+        self.assertEqual(replacement, repeated)
+        self.assertEqual(len(set(points)), 24)
+        self.assertLessEqual(
+            max(distance_m(*target, *point) for point in points), 45.01
+        )
+        center = (
+            sum(point[0] for point in points) / len(points),
+            sum(point[1] for point in points) / len(points),
+        )
+        self.assertLess(distance_m(*target, *center), 0.02)
+
+    def test_single_sentinel_becomes_exact_target(self):
+        target = (40.0, -74.0)
+        body = gx.build_response([
+            gx.build_wifi("aa:bb:cc:dd:ee:01", gx.build_sentinel_location(-1))
+        ])
+        replacement, count, anchor, source = gx.translate_response(
+            body, *target, accuracy=25
+        )
+        entry = gx.decode_response(replacement)[0]
+        self.assertEqual((count, anchor, source), (1, None, gx.NO_FIX_SOURCE))
+        self.assertAlmostEqual(entry["lat"], target[0], places=7)
+        self.assertAlmostEqual(entry["lon"], target[1], places=7)
+        self.assertEqual(entry["accuracy"], 25)
+
+    def test_sentinel_cell_gets_plausible_cell_accuracy(self):
+        target = (40.0, -74.0)
+        body = gx.build_cell_response([
+            gx.build_cell(gx.build_sentinel_location(-1), 460, 1, 12345, 77)
+        ])
+        replacement, count, anchor, source = gx.translate_response(
+            body, *target, accuracy=25
+        )
+        entry = gx.decode_response(replacement)[0]
+        self.assertEqual((count, anchor, source), (1, None, gx.NO_FIX_SOURCE))
+        self.assertAlmostEqual(entry["lat"], target[0], places=7)
+        self.assertAlmostEqual(entry["lon"], target[1], places=7)
+        self.assertEqual(entry["accuracy"], 1000)
+
+    def test_empty_response_is_safe_no_fix_passthrough(self):
+        body = b"\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00"
+        replacement, count, anchor, source = gx.translate_response(
+            body, 40.0, -74.0, accuracy=25
+        )
         self.assertEqual(replacement, body)
-        self.assertEqual(count, 0)
-        self.assertIsNone(anchor)
-        self.assertEqual(source, gx.NO_FIX_SOURCE)
+        self.assertEqual((count, anchor, source), (0, None, gx.NO_FIX_SOURCE))
+
+    def test_malformed_unanchored_location_fails_closed(self):
+        malformed = gx.tag(1, gx.WIRE_VARINT) + gx.encode_int64(
+            gx.js_round(34.0 * 1e8)
+        )
+        body = gx.build_response([
+            gx.build_wifi("aa:bb:cc:dd:ee:ff", malformed)
+        ])
+        with self.assertRaisesRegex(ValueError, "no safe translation anchor"):
+            gx.translate_response(body, 40.0, -74.0, accuracy=25)
 
     def test_smooth_jitter_is_bounded_and_continuous(self):
         seed = b"x" * 32
@@ -81,6 +146,25 @@ class WifiTileRewriteTests(unittest.TestCase):
         self.assertIsNotNone(anchor)
         self.assertAlmostEqual(points[1][0] - points[0][0], 0.002, places=6)
         self.assertNotEqual(points[0], points[1])
+
+    def test_wifi_tile_no_fix_marker_is_preserved_not_translated(self):
+        # A tile mixing a real AP with a (-180,-180) no-fix marker must not raise
+        # (translate_coordinate would reject the marker) and must not fabricate a
+        # fix for it: only the valid AP is translated, the marker is left as-is.
+        payload = build_tile([(34.0, -118.0), (-180.0, -180.0)])
+        replacement, count, anchor = wx.translate_wifi_tile(payload, 40.0, -74.0)
+        points = wx.decode_locations(replacement)
+        self.assertEqual(count, 1)
+        self.assertTrue(35.0 <= points[0][0] <= 45.0)
+        self.assertEqual(points[1], (-180.0, -180.0))
+
+    def test_wifi_tile_out_of_range_marker_is_not_fabricated(self):
+        payload = build_tile([(33.9, -118.0), (34.1, -118.0), (-95.0, -118.05)])
+        replacement, count, _anchor = wx.translate_wifi_tile(payload, 40.0, -74.0)
+        points = wx.decode_locations(replacement)
+        self.assertEqual(count, 2)
+        self.assertAlmostEqual(points[2][0], -95.0, places=6)
+        self.assertAlmostEqual(points[2][1], -118.05, places=6)
 
 
 def build_tile(points):

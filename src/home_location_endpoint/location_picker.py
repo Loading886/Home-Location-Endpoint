@@ -89,10 +89,20 @@ def validate_ip_location(data):
         or not country_code.isalpha()
     ):
         raise ValueError("IP provider did not return a usable city/country")
-    if isinstance(data.get("latitude"), bool) or isinstance(data.get("longitude"), bool):
+    lat_raw = data.get("latitude")
+    lon_raw = data.get("longitude")
+    if (
+        lat_raw is None
+        or lon_raw is None
+        or isinstance(lat_raw, bool)
+        or isinstance(lon_raw, bool)
+    ):
         raise ValueError("IP provider returned an invalid coordinate")
-    lat = float(data["latitude"])
-    lon = float(data["longitude"])
+    try:
+        lat = float(lat_raw)
+        lon = float(lon_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("IP provider returned an invalid coordinate") from exc
     if not (
         math.isfinite(lat)
         and math.isfinite(lon)
@@ -404,12 +414,17 @@ def main():
         raise SystemExit("--output-uid must be non-negative")
     if args.output_gid is not None and args.output_gid < 0:
         raise SystemExit("--output-gid must be non-negative")
-    ip_data = (
-        json.loads(args.ip_json.read_text(encoding="utf-8"))
-        if args.ip_json
-        else fetch_json(args.ip_api)
-    )
-    info = validate_ip_location(ip_data)
+    try:
+        if args.ip_json:
+            ip_data = json.loads(args.ip_json.read_text(encoding="utf-8"))
+        else:
+            ip_data = fetch_json(args.ip_api)
+        info = validate_ip_location(ip_data)
+    except (ValueError, OSError) as exc:
+        # Turn an unreachable provider or a malformed response into one clear
+        # line instead of a multi-line Python traceback; the installer relies
+        # only on the non-zero exit to fall back or fail cleanly.
+        raise SystemExit("IP geolocation lookup failed: %s" % exc)
     geometry = None
     if args.geometry_json:
         geometry = json.loads(args.geometry_json.read_text(encoding="utf-8"))

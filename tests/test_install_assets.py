@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -58,8 +59,19 @@ class InstallAssetTests(unittest.TestCase):
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")
         bootstrap = installer.index("bootstrap_if_needed()")
         validation = installer.index("HLE_VERSION contains unsupported", bootstrap)
-        apt_update = installer.index("apt-get -o Acquire::Retries=3 update", bootstrap)
+        apt_update = installer.index("apt-get -o Acquire::Retries=3", bootstrap)
         self.assertLess(validation, apt_update)
+
+    def test_apt_calls_tolerate_a_held_lock(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        apt_calls = re.findall(r"apt-get -o Acquire::Retries=3[^\n]*", installer)
+        self.assertTrue(apt_calls)
+        for call in apt_calls:
+            self.assertIn("DPkg::Lock::Timeout=", call)
+        packages = installer.index("install_packages()")
+        wait = installer.index("wait_for_apt_lock", packages)
+        first_apt = installer.index("apt-get", packages)
+        self.assertLess(wait, first_apt)
 
     def test_service_and_log_limits_are_present(self):
         service = (ROOT / "systemd" / "home-location-endpoint.service").read_text(

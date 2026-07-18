@@ -25,6 +25,7 @@ MODE=""
 EXISTING_MODE=""
 MODE_EXPLICIT=0
 PROXY_OPTION_EXPLICIT=0
+SERVER_EXPLICIT=0
 REALITY_SNI=""
 REALITY_TARGET=""
 LISTEN_ADDRESS="0.0.0.0"
@@ -37,6 +38,10 @@ HOME_WAS_ACTIVE=0
 HOME_WAS_ENABLED=0
 XRAY_WAS_ACTIVE=0
 XRAY_WAS_ENABLED=0
+CREATED_HOME_USER=0
+CREATED_HOME_GROUP=0
+CREATED_XRAY_USER=0
+CREATED_XRAY_GROUP=0
 TEMP_DIRS=()
 ROLLBACK_PATHS=()
 
@@ -54,12 +59,14 @@ print_help() {
 Usage: sudo bash install.sh [options]
 
   --mode MODE              full or modifier-only (interactive when omitted)
-  --port PORT              VLESS + REALITY listening port (default: 443)
+  --port PORT              VLESS + REALITY listening port (default: 443, full mode)
   --server HOST_OR_IP      address written into the client URI (default: detected egress IP)
-  --reality-sni HOST       override the random validated REALITY SNI
-  --reality-target H:P     override target for an explicit SNI (default: SNI:443)
+  --reality-sni HOST       override the random validated REALITY SNI (full mode)
+  --reality-target H:P     override target for an explicit SNI (default: SNI:443, full mode)
   --rotate-ca              replace the scoped CA and leaf certificate
 
+--port, --server, --reality-sni, and --reality-target apply to full mode only.
+Remove a completed installation later with: sudo hle uninstall
 The installer never changes SSH ports, keys, or passwords. Full mode may add its TCP port to an already-active UFW policy.
 EOF
 }
@@ -159,6 +166,7 @@ begin_transaction() {
         "${ETC_DIR}"
         "${APP_DIR}"
         "${STATE_DIR}"
+        "${LOG_DIR}"
         /usr/local/sbin/hle
         /etc/systemd/system/home-location-endpoint.service
         /etc/logrotate.d/home-location-endpoint
@@ -266,9 +274,10 @@ bootstrap_if_needed() {
     fi
 
     note "Downloading ${PROJECT} ${BOOTSTRAP_VERSION}"
-    apt-get -o Acquire::Retries=3 update -qq
+    wait_for_apt_lock
+    apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 update -qq
     DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
-        apt-get -o Acquire::Retries=3 install -y -qq ca-certificates curl tar util-linux
+        apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq ca-certificates curl tar util-linux
     temporary="$(mktemp -d)"
     register_temp_dir "${temporary}"
     : > "${temporary}/.home-location-endpoint-bootstrap"
@@ -291,7 +300,7 @@ bootstrap_if_needed() {
 }
 
 load_existing_settings() {
-    local mode_from_file="" mode_from_env=""
+    local mode_from_file="" mode_from_env="" inventory_flag
     if [[ -f "${ETC_DIR}/mode" ]]; then
         mode_from_file="$(<"${ETC_DIR}/mode")"
         case "${mode_from_file}" in
@@ -311,6 +320,19 @@ load_existing_settings() {
         PORT="${HLE_PORT:-${PORT}}"
         PREVIOUS_PORT="${HLE_PORT:-}"
         SERVER="${HLE_SERVER:-${SERVER}}"
+        SERVER_EXPLICIT="${HLE_SERVER_EXPLICIT:-${SERVER_EXPLICIT}}"
+        CREATED_HOME_USER="${HLE_CREATED_HOME_USER:-${CREATED_HOME_USER}}"
+        CREATED_HOME_GROUP="${HLE_CREATED_HOME_GROUP:-${CREATED_HOME_GROUP}}"
+        CREATED_XRAY_USER="${HLE_CREATED_XRAY_USER:-${CREATED_XRAY_USER}}"
+        CREATED_XRAY_GROUP="${HLE_CREATED_XRAY_GROUP:-${CREATED_XRAY_GROUP}}"
+        for inventory_flag in \
+            SERVER_EXPLICIT CREATED_HOME_USER CREATED_HOME_GROUP \
+            CREATED_XRAY_USER CREATED_XRAY_GROUP; do
+            case "${!inventory_flag}" in
+                0|1) ;;
+                *) die "invalid installation inventory flag: ${inventory_flag}" ;;
+            esac
+        done
     fi
     if [[ -n "${mode_from_file}" && -n "${mode_from_env}" \
           && "${mode_from_file}" != "${mode_from_env}" ]]; then
@@ -338,6 +360,7 @@ parse_args() {
             --server)
                 [[ $# -ge 2 ]] || die "--server needs a value"
                 SERVER="$2"
+                SERVER_EXPLICIT=1
                 PROXY_OPTION_EXPLICIT=1
                 shift 2
                 ;;
@@ -370,6 +393,9 @@ parse_args() {
     done
     [[ "${PORT}" =~ ^[0-9]+$ ]] || die "port must be numeric"
     (( PORT >= 1 && PORT <= 65535 )) || die "port must be between 1 and 65535"
+    if [[ "${MODE_EXPLICIT}" -eq 1 && "${MODE}" != "full" && "${MODE}" != "modifier-only" ]]; then
+        die "--mode must be full or modifier-only"
+    fi
 }
 
 select_install_mode() {
@@ -380,14 +406,21 @@ select_install_mode() {
         fi
         MODE="${EXISTING_MODE}"
     elif [[ -z "${MODE}" ]]; then
-        if [[ -r /dev/tty ]]; then
-            cat > /dev/tty <<'EOF'
+        # [[ -r /dev/tty ]] is not enough: the device node can pass the readable
+        # test while opening it fails with ENXIO when there is no controlling
+        # terminal (cloud-init, Ansible, cron, systemd, nohup). Probe by actually
+        # opening it so those environments fall back to full mode instead of
+        # aborting under set -e on the first /dev/tty write.
+        if { exec 3<>/dev/tty; } 2>/dev/null; then
+            cat >&3 <<'EOF'
 
 Choose an installation mode:
   1) Full proxy endpoint + location modifier (recommended)
   2) Location modifier only (advanced; integrate your own proxy)
 EOF
-            read -r -p "Selection [1]: " choice < /dev/tty || true
+            printf 'Selection [1]: ' >&3
+            read -r choice <&3 || true
+            exec 3>&-
             case "${choice:-1}" in
                 1) MODE="full" ;;
                 2) MODE="modifier-only" ;;
@@ -518,15 +551,64 @@ check_resources() {
     fi
 }
 
+wait_for_apt_lock() {
+    # Fresh Ubuntu images run unattended-upgrades on first boot, which can hold
+    # the dpkg/apt lock for many minutes; apt-get would otherwise fail at once
+    # with a lock error and abort the install. Wait for the lock to clear with a
+    # clear message and a bounded, overridable timeout. Needs fuser (psmisc,
+    # present on the Ubuntu images where this happens); when it is unavailable
+    # this is a no-op and the apt DPkg::Lock::Timeout option is the only backstop.
+    local lock waited=0 announced=0
+    local timeout_s="${HLE_APT_LOCK_WAIT:-600}"
+    if [[ ! "${timeout_s}" =~ ^[0-9]+$ ]] || (( timeout_s > 3600 )); then
+        die "HLE_APT_LOCK_WAIT must be an integer between 0 and 3600 seconds"
+    fi
+    command -v fuser >/dev/null 2>&1 || return 0
+    local locks=(
+        /var/lib/dpkg/lock-frontend
+        /var/lib/dpkg/lock
+        /var/lib/apt/lists/lock
+    )
+    while :; do
+        local held=0
+        for lock in "${locks[@]}"; do
+            if [[ -e "${lock}" ]] && fuser "${lock}" >/dev/null 2>&1; then
+                held=1
+                break
+            fi
+        done
+        [[ "${held}" -eq 0 ]] && break
+        if [[ "${announced}" -eq 0 ]]; then
+            note "Waiting for another package operation to release the apt lock (Ubuntu often runs unattended-upgrades on first boot)"
+            announced=1
+        fi
+        if (( waited >= timeout_s )); then
+            die "the apt/dpkg lock is still held after ${timeout_s}s. A background upgrade is likely running; check 'systemctl status unattended-upgrades apt-daily.service apt-daily-upgrade.service', let it finish, then re-run the installer (set HLE_APT_LOCK_WAIT to wait longer)."
+        fi
+        sleep 5
+        waited=$((waited + 5))
+        if (( waited % 30 == 0 )); then
+            printf '  still waiting for the apt lock (%ds elapsed)...\n' "${waited}" >&2
+        fi
+    done
+    # Note: the trailing statement must not be a false test, or the function
+    # returns non-zero and aborts the install under set -e when the lock was free.
+    if [[ "${announced}" -eq 1 ]]; then
+        note "apt lock released; continuing"
+    fi
+    return 0
+}
+
 install_packages() {
     note "Installing required packages"
-    apt-get -o Acquire::Retries=3 update -qq
+    wait_for_apt_lock
+    apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 update -qq
     DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
-        apt-get -o Acquire::Retries=3 install -y -qq \
+        apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq \
         ca-certificates curl logrotate openssl python3 util-linux
     if [[ "${MODE}" == "full" ]]; then
         DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
-            apt-get -o Acquire::Retries=3 install -y -qq \
+            apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq \
             iproute2 kmod procps unzip uuid-runtime
     fi
 }
@@ -535,6 +617,22 @@ validate_reality_sni() {
     PYTHONPATH="${SOURCE_DIR}/src" python3 -c \
         'import sys; from home_location_endpoint.render import validate_host; validate_host(sys.argv[1], allow_ip=False)' \
         "$1"
+}
+
+validate_explicit_overrides() {
+    # Reject a malformed --server/--reality-sni in the first second, before the
+    # transaction, the Xray download, certificate generation, and the live SNI
+    # probing -- otherwise a simple typo only fails deep in the install and
+    # triggers a full rollback. Runs after install_packages so python3 exists.
+    if [[ "${SERVER_EXPLICIT}" -eq 1 && -n "${SERVER}" ]]; then
+        PYTHONPATH="${SOURCE_DIR}/src" python3 -c \
+            'import sys; from home_location_endpoint.render import validate_host; validate_host(sys.argv[1], allow_ip=True)' \
+            "${SERVER}" 2>/dev/null || die "invalid --server address: ${SERVER}"
+    fi
+    if [[ "${REALITY_EXPLICIT}" -eq 1 && -n "${REALITY_SNI}" ]]; then
+        validate_reality_sni "${REALITY_SNI}" 2>/dev/null \
+            || die "invalid --reality-sni hostname: ${REALITY_SNI}"
+    fi
 }
 
 tls_target_works() {
@@ -626,8 +724,12 @@ apply_baseline() {
 }
 
 ensure_system_account() {
-    local user="$1" group="$2" gid uid primary_group shell
-    getent group "${group}" >/dev/null || groupadd --system "${group}"
+    local user="$1" group="$2" user_flag="$3" group_flag="$4"
+    local gid uid primary_group shell
+    if ! getent group "${group}" >/dev/null; then
+        groupadd --system "${group}"
+        printf -v "${group_flag}" '%s' 1
+    fi
     gid="$(getent group "${group}" | cut -d: -f3)"
     [[ "${gid}" =~ ^[0-9]+$ && "${gid}" -lt 1000 ]] \
         || die "existing group ${group} is not a compatible system group"
@@ -645,17 +747,19 @@ ensure_system_account() {
     fi
     useradd --system --gid "${group}" --home-dir /nonexistent \
         --shell /usr/sbin/nologin "${user}"
+    printf -v "${user_flag}" '%s' 1
 }
 
 create_accounts_and_directories() {
-    ensure_system_account home-location home-location
+    ensure_system_account \
+        home-location home-location CREATED_HOME_USER CREATED_HOME_GROUP
 
     install -d -o root -g home-location -m 0750 "${ETC_DIR}"
     install -d -o root -g root -m 0755 "${APP_DIR}"
     install -d -o root -g home-location -m 0750 "${STATE_DIR}"
     install -d -o home-location -g home-location -m 0750 "${LOG_DIR}"
     if [[ "${MODE}" == "full" ]]; then
-        ensure_system_account xray xray
+        ensure_system_account xray xray CREATED_XRAY_USER CREATED_XRAY_GROUP
         install -d -o root -g xray -m 0750 "${XRAY_CONFIG_DIR}"
     fi
 
@@ -832,14 +936,18 @@ render_and_validate() {
     note "Rendering and validating the endpoint configuration"
     stage="$(mktemp -d)"
     register_temp_dir "${stage}"
+    # Use --opt=value form for every operator/generated string value. REALITY
+    # x25519 keys are base64url and can legitimately begin with '-', which the
+    # space-separated form makes argparse reject as an option ("expected one
+    # argument"). The '=' form is unambiguous regardless of a leading dash.
     python3 "${SOURCE_DIR}/src/home_location_endpoint/render.py" \
         --config "${stage}/config.json" \
         --uri "${stage}/node-uri.txt" \
-        --server "${SERVER}" --port "${PORT}" --uuid "${CLIENT_UUID}" \
-        --reality-sni "${REALITY_SNI}" --reality-target "${REALITY_TARGET}" \
-        --private-key "${PRIVATE_KEY}" --public-key "${PUBLIC_KEY}" \
-        --short-id "${SHORT_ID}" \
-        --listen "${LISTEN_ADDRESS}" \
+        --server="${SERVER}" --port "${PORT}" --uuid="${CLIENT_UUID}" \
+        --reality-sni="${REALITY_SNI}" --reality-target="${REALITY_TARGET}" \
+        --private-key="${PRIVATE_KEY}" --public-key="${PUBLIC_KEY}" \
+        --short-id="${SHORT_ID}" \
+        --listen="${LISTEN_ADDRESS}" \
         --fallback-upload-after "${FALLBACK_UPLOAD_AFTER}" \
         --fallback-upload-rate "${FALLBACK_UPLOAD_RATE}" \
         --fallback-upload-burst "${FALLBACK_UPLOAD_BURST}" \
@@ -855,6 +963,11 @@ render_and_validate() {
         printf 'HLE_MODE=%q\n' "${MODE}"
         printf 'HLE_PORT=%q\n' "${PORT}"
         printf 'HLE_SERVER=%q\n' "${SERVER}"
+        printf 'HLE_SERVER_EXPLICIT=%q\n' "${SERVER_EXPLICIT}"
+        printf 'HLE_CREATED_HOME_USER=%q\n' "${CREATED_HOME_USER}"
+        printf 'HLE_CREATED_HOME_GROUP=%q\n' "${CREATED_HOME_GROUP}"
+        printf 'HLE_CREATED_XRAY_USER=%q\n' "${CREATED_XRAY_USER}"
+        printf 'HLE_CREATED_XRAY_GROUP=%q\n' "${CREATED_XRAY_GROUP}"
         printf 'HLE_REALITY_SNI=%q\n' "${REALITY_SNI}"
         printf 'HLE_REALITY_TARGET=%q\n' "${REALITY_TARGET}"
         printf 'HLE_UUID=%q\n' "${CLIENT_UUID}"
@@ -882,6 +995,11 @@ write_common_mode_state() {
         {
             printf 'HLE_MODE=%q\n' "${MODE}"
             printf 'HLE_SERVER=%q\n' "${SERVER}"
+            printf 'HLE_SERVER_EXPLICIT=%q\n' "${SERVER_EXPLICIT}"
+            printf 'HLE_CREATED_HOME_USER=%q\n' "${CREATED_HOME_USER}"
+            printf 'HLE_CREATED_HOME_GROUP=%q\n' "${CREATED_HOME_GROUP}"
+            printf 'HLE_CREATED_XRAY_USER=%q\n' 0
+            printf 'HLE_CREATED_XRAY_GROUP=%q\n' 0
         } > "${ETC_DIR}/install.env"
         chmod 0600 "${ETC_DIR}/install.env"
         printf 'mode=%s\n' "${MODE}" > "${MARKER}"
@@ -952,21 +1070,37 @@ open_active_firewall() {
 }
 
 show_result() {
-    local city fingerprint
+    local city fingerprint server_label
     city="$(python3 -c 'import json; d=json.load(open("/etc/home-location-endpoint/location.json")); print(d["source"]["city"]+", "+d["source"]["country_code"])')"
     fingerprint="$(openssl x509 -in "${ETC_DIR}/ca.crt" -noout -fingerprint -sha256 | cut -d= -f2)"
     if [[ "${MODE}" == "full" ]]; then
+        if [[ "${SERVER_EXPLICIT}" -eq 1 ]]; then
+            server_label="${SERVER} (from --server)"
+        else
+            server_label="${SERVER} (auto-detected egress IP)"
+        fi
         cat <<EOF
 
 ${PROJECT} is ready in full mode.
 
 Random location city: ${city}
 REALITY SNI: ${REALITY_SNI}
+Server address in URI: ${server_label}
 VLESS URI:
 $(cat "${ETC_DIR}/node-uri.txt")
 
 iOS CA profile: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
 CA SHA-256: ${fingerprint}
+EOF
+        if [[ "${SERVER_EXPLICIT}" -eq 0 ]]; then
+            cat <<EOF
+
+IMPORTANT: the URI address above is this host's auto-detected egress IP. If clients
+reach this host through a Realm front, NAT, or a different ingress IP, that address
+will not connect -- reinstall with --server <ingress-address> and keep the port identical.
+EOF
+        fi
+        cat <<EOF
 
 If this landing server is behind one or more relays, use Realm pure TCP forwarding.
 Keep UUID, flow, SNI, REALITY public key, and short ID unchanged at every relay.
@@ -974,9 +1108,10 @@ Keep UUID, flow, SNI, REALITY public key, and short ID unchanged at every relay.
 Next:
   1. Copy the profile to the iPhone, install it, then enable full trust for this CA.
   2. Import the VLESS URI into a full-tunnel client and connect through this endpoint.
-  3. Run 'hle verify' and 'hle status' for local checks.
+  3. Run 'sudo hle verify' and 'sudo hle status' for local checks.
   4. Run 'sudo hle relocate' whenever you want another random point in the same IP city.
 
+Remove everything later with: sudo hle uninstall
 SSH was not changed. If a provider firewall exists, allow TCP ${PORT} there.
 EOF
         return
@@ -995,8 +1130,9 @@ Next:
   1. Copy the profile to the iPhone, install it, then enable full trust for this CA.
   2. Merge the example outbounds/routing rules into your own proxy configuration.
   3. Enable TLS/HTTP sniffing with routeOnly on the inbound that carries phone traffic.
-  4. Run 'hle verify', then test that only the documented Apple hosts reach loopback:10451.
+  4. Run 'sudo hle verify', then test that only the documented Apple hosts reach loopback:10451.
 
+Remove everything this mode installed (it never touches your proxy core) with: sudo hle uninstall
 No proxy core, proxy port, firewall rule, or TCP tuning was installed in this mode.
 EOF
 }
@@ -1014,6 +1150,7 @@ main() {
     check_existing_installation
     check_resources
     install_packages
+    validate_explicit_overrides
     begin_transaction
     if [[ "${MODE}" == "full" ]]; then
         detect_listen_address

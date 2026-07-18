@@ -36,14 +36,31 @@ IPv6 云防火墙。
 
 `--rotate-ca` 会让旧手机描述文件失效，必须重新分发、核对指纹并开启完全信任。
 
-正式环境建议使用 Git tag 对应的版本，而不是长期追踪可变的 `main`。当前不提供自动卸载器；
-不要把完整模式安装到还承载其他 Xray 配置的主机，也不要用未经审查的删除命令清理混合环境。
+正式环境建议使用 Git tag 对应的版本，而不是长期追踪可变的 `main`。不要把完整模式安装到还
+承载其他 Xray 配置的主机。
 
-例如固定安装 `v0.1.0`：
+## 卸载
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.0/install.sh \
-  | sudo env HLE_VERSION=v0.1.0 bash
+sudo hle uninstall          # 交互确认
+sudo hle uninstall --yes    # 脚本化，跳过确认
+```
+
+`hle uninstall` 停止并禁用本项目的服务，按安装时的受管清单删除 systemd unit、配置/程序/状态/
+日志目录、`/usr/local/sbin/hle`、logrotate 与受限 CA。它用 `install_mode` 判定模式：只有当本机
+确实由本项目安装了受管 Xray（完整模式）时，才会删除该 Xray 二进制、其配置和 TCP sysctl 文件；
+仅定位模式绝不触碰你自己的代理核心。只有安装清单明确记录为本项目新建的低权限账户/组才会
+被删除；从旧版升级而缺少证据时会安全保留。UFW 规则不会自动删除，请按端口和注释人工核对。
+sysctl 调优在下次重启前仍然生效。卸载不会删除已装到 iPhone 上的 CA 描述文件，请手动移除。
+
+不要用未经审查的 `rm -rf` 清理混合环境；如果安装被强制中断留下半套状态，先按下文
+“事务与失败边界”排查后再决定用 `hle uninstall` 或手动恢复备份。
+
+例如固定安装 `v0.1.1`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.1/install.sh \
+  | sudo env HLE_VERSION=v0.1.1 bash
 ```
 
 ## 事务与失败边界

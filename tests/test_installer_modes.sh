@@ -13,6 +13,11 @@ reset_mode_state() {
     EXISTING_MODE=""
     MODE_EXPLICIT=0
     PROXY_OPTION_EXPLICIT=0
+    SERVER_EXPLICIT=0
+    CREATED_HOME_USER=0
+    CREATED_HOME_GROUP=0
+    CREATED_XRAY_USER=0
+    CREATED_XRAY_GROUP=0
 }
 
 reset_mode_state
@@ -71,5 +76,50 @@ reset_mode_state
 load_existing_settings
 [[ "${EXISTING_MODE}" == "full" ]]
 [[ "${MODE}" == "full" ]]
+
+printf '%s\n' \
+    'HLE_MODE=full' \
+    'HLE_SERVER_EXPLICIT=1' \
+    'HLE_CREATED_HOME_USER=1' \
+    'HLE_CREATED_HOME_GROUP=1' \
+    'HLE_CREATED_XRAY_USER=0' \
+    'HLE_CREATED_XRAY_GROUP=0' > "${ETC_DIR}/install.env"
+reset_mode_state
+load_existing_settings
+[[ "${SERVER_EXPLICIT}" -eq 1 ]]
+[[ "${CREATED_HOME_USER}" -eq 1 ]]
+[[ "${CREATED_HOME_GROUP}" -eq 1 ]]
+[[ "${CREATED_XRAY_USER}" -eq 0 ]]
+[[ "${CREATED_XRAY_GROUP}" -eq 0 ]]
+
+if (
+    printf '%s\n' 'HLE_MODE=full' 'HLE_CREATED_HOME_USER=invalid' \
+        > "${ETC_DIR}/install.env"
+    reset_mode_state
+    load_existing_settings >/dev/null 2>&1
+); then
+    printf 'installer accepted an invalid ownership inventory flag\n' >&2
+    exit 1
+fi
+
+(
+    group_exists=0
+    getent() {
+        if [[ "$1" == "group" && "${group_exists}" -eq 1 ]]; then
+            printf '%s\n' 'home-location:x:998:'
+            return 0
+        fi
+        return 2
+    }
+    groupadd() { group_exists=1; }
+    id() { return 1; }
+    useradd() { return 0; }
+    created_user=0
+    created_group=0
+    ensure_system_account \
+        home-location home-location created_user created_group
+    [[ "${created_user}" -eq 1 ]]
+    [[ "${created_group}" -eq 1 ]]
+)
 
 printf 'installer mode tests: OK\n'

@@ -28,7 +28,7 @@ PYTHONPATH=src python3 -m home_location_endpoint.render \
     --ca-der "${TEMPORARY}/ca.der" \
     --server 203.0.113.9 --port 443 --uuid "${CLIENT_UUID}" \
     --reality-sni www.microsoft.com --reality-target www.microsoft.com:443 \
-    --private-key "${PRIVATE_KEY}" --public-key "${PUBLIC_KEY}" \
+    --private-key="${PRIVATE_KEY}" --public-key="${PUBLIC_KEY}" \
     --short-id 0123456789abcdef \
     --listen :: \
     --fallback-upload-after 8388608 \
