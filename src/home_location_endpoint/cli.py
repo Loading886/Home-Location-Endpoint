@@ -300,12 +300,16 @@ def command_verify(_args):
 
 
 def _systemctl(*arguments):
-    subprocess.run(
-        ["systemctl", *arguments],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        result = subprocess.run(
+            ["systemctl", *arguments],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return 127
+    return result.returncode
 
 
 def _remove_path(path):
@@ -314,36 +318,100 @@ def _remove_path(path):
             path.unlink()
         elif path.is_dir():
             shutil.rmtree(path)
+        elif path.exists():
+            print("warning: unsupported managed path type: %s" % path)
+            return False
     except FileNotFoundError:
-        pass
+        return True
     except OSError as exc:
         print("warning: could not remove %s: %s" % (path, exc))
+        return False
+    return True
 
 
-def _delete_account(name):
-    for tool in ("userdel", "groupdel"):
-        subprocess.run(
-            [tool, name],
+def _delete_user(name):
+    try:
+        import pwd
+
+        pwd.getpwnam(name)
+    except KeyError:
+        return True
+    except ImportError:
+        return False
+    try:
+        result = subprocess.run(
+            ["userdel", name],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
-def _installed_port():
+def _delete_group(name):
+    try:
+        import grp
+
+        grp.getgrnam(name)
+    except KeyError:
+        return True
+    except ImportError:
+        return False
+    try:
+        result = subprocess.run(
+            ["groupdel", name],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def _install_inventory():
+    values = {}
     try:
         for line in (ETC / "install.env").read_text(encoding="utf-8").splitlines():
-            if line.startswith("HLE_PORT="):
-                value = line.split("=", 1)[1].strip().strip("'\"")
-                return value if value.isdigit() else None
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.startswith("HLE_"):
+                values[key] = value.strip().strip("'\"")
     except OSError:
-        return None
-    return None
+        return {}
+    return values
+
+
+def _inventory_flag(inventory, name):
+    return inventory.get(name) == "1"
+
+
+def _valid_installer_marker():
+    marker = ETC / "managed-by-installer"
+    try:
+        metadata = marker.stat(follow_symlinks=False)
+    except OSError:
+        return False
+    return (
+        not marker.is_symlink()
+        and stat.S_ISREG(metadata.st_mode)
+        and metadata.st_uid == 0
+        and stat.S_IMODE(metadata.st_mode) & 0o022 == 0
+    )
 
 
 def command_uninstall(args):
     if os.geteuid() != 0:
         raise SystemExit("hle uninstall must run as root")
+    if not shutil.which("systemctl"):
+        raise SystemExit("hle uninstall requires systemctl")
+    if not _valid_installer_marker():
+        raise SystemExit(
+            "refusing to uninstall without a root-owned Home-Location-Endpoint marker"
+        )
     # install_mode() reports "full" only when this host actually has the managed
     # Xray node (node-uri.txt / recorded mode); a modifier-only host that merely
     # runs the operator's own Xray reports "modifier-only", so full teardown
@@ -357,7 +425,8 @@ def command_uninstall(args):
         print("  - deletes %s, %s, %s, and %s" % (ETC, APP, STATE, LOG))
         if full:
             print("  - deletes the managed Xray binary, its config, and the TCP sysctl file")
-        print("  - removes the scoped CA files on this host and the low-privilege account(s)")
+        print("  - removes the scoped CA files on this host")
+        print("  - removes only low-privilege accounts recorded as installer-created")
         if not full:
             print("  - leaves your own proxy core, ports, and firewall untouched")
         print("It does NOT delete the CA profile already installed on your iPhone.")
@@ -367,36 +436,90 @@ def command_uninstall(args):
             answer = ""
         if answer != "yes":
             raise SystemExit("uninstall aborted")
-    port = _installed_port() if full else None
+    inventory = {}
+    port = None
+    failures = []
+    preserved_accounts = []
     with operation_lock():
+        # Re-check after acquiring the installer lock. The confirmation prompt
+        # may have been open while another process completed an upgrade.
+        if not _valid_installer_marker() or install_mode() != mode:
+            raise SystemExit("installation state changed; rerun hle uninstall")
+        inventory = _install_inventory()
+        port_value = inventory.get("HLE_PORT", "") if full else ""
+        port = port_value if port_value.isdigit() else None
         _systemctl("disable", "--now", "home-location-endpoint.service")
         if full:
             _systemctl("disable", "--now", "xray.service")
-        _remove_path(SYSTEMD_DIR / "home-location-endpoint.service")
+        services = ["home-location-endpoint.service"]
         if full:
-            _remove_path(SYSTEMD_DIR / "xray.service")
-        _systemctl("daemon-reload")
-        _remove_path(HLE_SYMLINK)
-        _remove_path(LOGROTATE_FILE)
-        _remove_path(ETC)
-        _remove_path(APP)
-        _remove_path(STATE)
-        _remove_path(LOG)
+            services.append("xray.service")
+        still_active = [
+            service for service in services
+            if _systemctl("is-active", "--quiet", service) == 0
+        ]
+        if still_active:
+            raise SystemExit(
+                "refusing to remove files while services remain active: %s"
+                % ", ".join(still_active)
+            )
+
+        managed_paths = [
+            SYSTEMD_DIR / "home-location-endpoint.service",
+            LOGROTATE_FILE,
+            STATE,
+            LOG,
+        ]
         if full:
-            _remove_path(SYSCTL_FILE)
-            _remove_path(XRAY_CONFIG_DIR)
-            _remove_path(XRAY_BIN)
-            if port and shutil.which("ufw"):
-                subprocess.run(
-                    ["ufw", "delete", "allow", "%s/tcp" % port],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-        _delete_account("home-location")
+            managed_paths.extend([
+                SYSTEMD_DIR / "xray.service",
+                SYSCTL_FILE,
+                XRAY_CONFIG_DIR,
+                XRAY_BIN,
+            ])
+        for path in managed_paths:
+            if not _remove_path(path):
+                failures.append(str(path))
+        if _systemctl("daemon-reload") != 0:
+            failures.append("systemctl daemon-reload")
+
+        account_inventory = [
+            ("home-location", "HLE_CREATED_HOME_USER", "HLE_CREATED_HOME_GROUP")
+        ]
         if full:
-            _delete_account("xray")
-    print("Home-Location-Endpoint removed.")
+            account_inventory.append(
+                ("xray", "HLE_CREATED_XRAY_USER", "HLE_CREATED_XRAY_GROUP")
+            )
+        for name, user_flag, group_flag in account_inventory:
+            remove_user = _inventory_flag(inventory, user_flag)
+            remove_group = _inventory_flag(inventory, group_flag)
+            group_was_created = remove_group
+            if remove_user and not _delete_user(name):
+                failures.append("user %s" % name)
+                remove_group = False
+            elif not remove_user:
+                preserved_accounts.append("user %s" % name)
+            if remove_group and not _delete_group(name):
+                failures.append("group %s" % name)
+            elif not group_was_created:
+                preserved_accounts.append("group %s" % name)
+
+        # Preserve the CLI, marker, and inventory when an earlier step failed so
+        # the operator can inspect the state and retry the same safe command.
+        if not failures:
+            for path in (ETC, APP, HLE_SYMLINK):
+                if not _remove_path(path):
+                    failures.append(str(path))
+
+    if failures:
+        print("Home-Location-Endpoint uninstall is incomplete.")
+        for failure in failures:
+            print("  - not removed: %s" % failure)
+        raise SystemExit(1)
+    print("Home-Location-Endpoint managed files removed.")
+    if preserved_accounts:
+        print("Preserved accounts not recorded as installer-created: %s."
+              % ", ".join(preserved_accounts))
     print(
         "Reminder: delete the CA profile from the iPhone "
         "(Settings > General > VPN & Device Management) and remove the client node%s."
@@ -404,6 +527,12 @@ def command_uninstall(args):
     )
     if full:
         print("TCP sysctl tuning stays live until the next reboot.")
+        if port and shutil.which("ufw"):
+            print(
+                "Firewall safety: review any TCP %s UFW rule manually; "
+                "the uninstaller does not delete a rule it cannot prove it created."
+                % port
+            )
 
 
 def parse_args():
@@ -421,7 +550,7 @@ def parse_args():
     verify = subparsers.add_parser("verify", help="run local integrity checks")
     verify.set_defaults(func=command_verify)
     uninstall = subparsers.add_parser(
-        "uninstall", help="stop services and remove every managed file, account, and CA"
+        "uninstall", help="stop services and remove managed files and scoped CA"
     )
     uninstall.add_argument(
         "--yes", action="store_true", help="skip the confirmation prompt"

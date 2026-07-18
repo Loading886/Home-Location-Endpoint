@@ -38,6 +38,10 @@ HOME_WAS_ACTIVE=0
 HOME_WAS_ENABLED=0
 XRAY_WAS_ACTIVE=0
 XRAY_WAS_ENABLED=0
+CREATED_HOME_USER=0
+CREATED_HOME_GROUP=0
+CREATED_XRAY_USER=0
+CREATED_XRAY_GROUP=0
 TEMP_DIRS=()
 ROLLBACK_PATHS=()
 
@@ -296,7 +300,7 @@ bootstrap_if_needed() {
 }
 
 load_existing_settings() {
-    local mode_from_file="" mode_from_env=""
+    local mode_from_file="" mode_from_env="" inventory_flag
     if [[ -f "${ETC_DIR}/mode" ]]; then
         mode_from_file="$(<"${ETC_DIR}/mode")"
         case "${mode_from_file}" in
@@ -316,6 +320,19 @@ load_existing_settings() {
         PORT="${HLE_PORT:-${PORT}}"
         PREVIOUS_PORT="${HLE_PORT:-}"
         SERVER="${HLE_SERVER:-${SERVER}}"
+        SERVER_EXPLICIT="${HLE_SERVER_EXPLICIT:-${SERVER_EXPLICIT}}"
+        CREATED_HOME_USER="${HLE_CREATED_HOME_USER:-${CREATED_HOME_USER}}"
+        CREATED_HOME_GROUP="${HLE_CREATED_HOME_GROUP:-${CREATED_HOME_GROUP}}"
+        CREATED_XRAY_USER="${HLE_CREATED_XRAY_USER:-${CREATED_XRAY_USER}}"
+        CREATED_XRAY_GROUP="${HLE_CREATED_XRAY_GROUP:-${CREATED_XRAY_GROUP}}"
+        for inventory_flag in \
+            SERVER_EXPLICIT CREATED_HOME_USER CREATED_HOME_GROUP \
+            CREATED_XRAY_USER CREATED_XRAY_GROUP; do
+            case "${!inventory_flag}" in
+                0|1) ;;
+                *) die "invalid installation inventory flag: ${inventory_flag}" ;;
+            esac
+        done
     fi
     if [[ -n "${mode_from_file}" && -n "${mode_from_env}" \
           && "${mode_from_file}" != "${mode_from_env}" ]]; then
@@ -541,9 +558,12 @@ wait_for_apt_lock() {
     # clear message and a bounded, overridable timeout. Needs fuser (psmisc,
     # present on the Ubuntu images where this happens); when it is unavailable
     # this is a no-op and the apt DPkg::Lock::Timeout option is the only backstop.
-    command -v fuser >/dev/null 2>&1 || return 0
     local lock waited=0 announced=0
     local timeout_s="${HLE_APT_LOCK_WAIT:-600}"
+    if [[ ! "${timeout_s}" =~ ^[0-9]+$ ]] || (( timeout_s > 3600 )); then
+        die "HLE_APT_LOCK_WAIT must be an integer between 0 and 3600 seconds"
+    fi
+    command -v fuser >/dev/null 2>&1 || return 0
     local locks=(
         /var/lib/dpkg/lock-frontend
         /var/lib/dpkg/lock
@@ -704,8 +724,12 @@ apply_baseline() {
 }
 
 ensure_system_account() {
-    local user="$1" group="$2" gid uid primary_group shell
-    getent group "${group}" >/dev/null || groupadd --system "${group}"
+    local user="$1" group="$2" user_flag="$3" group_flag="$4"
+    local gid uid primary_group shell
+    if ! getent group "${group}" >/dev/null; then
+        groupadd --system "${group}"
+        printf -v "${group_flag}" '%s' 1
+    fi
     gid="$(getent group "${group}" | cut -d: -f3)"
     [[ "${gid}" =~ ^[0-9]+$ && "${gid}" -lt 1000 ]] \
         || die "existing group ${group} is not a compatible system group"
@@ -723,17 +747,19 @@ ensure_system_account() {
     fi
     useradd --system --gid "${group}" --home-dir /nonexistent \
         --shell /usr/sbin/nologin "${user}"
+    printf -v "${user_flag}" '%s' 1
 }
 
 create_accounts_and_directories() {
-    ensure_system_account home-location home-location
+    ensure_system_account \
+        home-location home-location CREATED_HOME_USER CREATED_HOME_GROUP
 
     install -d -o root -g home-location -m 0750 "${ETC_DIR}"
     install -d -o root -g root -m 0755 "${APP_DIR}"
     install -d -o root -g home-location -m 0750 "${STATE_DIR}"
     install -d -o home-location -g home-location -m 0750 "${LOG_DIR}"
     if [[ "${MODE}" == "full" ]]; then
-        ensure_system_account xray xray
+        ensure_system_account xray xray CREATED_XRAY_USER CREATED_XRAY_GROUP
         install -d -o root -g xray -m 0750 "${XRAY_CONFIG_DIR}"
     fi
 
@@ -937,6 +963,11 @@ render_and_validate() {
         printf 'HLE_MODE=%q\n' "${MODE}"
         printf 'HLE_PORT=%q\n' "${PORT}"
         printf 'HLE_SERVER=%q\n' "${SERVER}"
+        printf 'HLE_SERVER_EXPLICIT=%q\n' "${SERVER_EXPLICIT}"
+        printf 'HLE_CREATED_HOME_USER=%q\n' "${CREATED_HOME_USER}"
+        printf 'HLE_CREATED_HOME_GROUP=%q\n' "${CREATED_HOME_GROUP}"
+        printf 'HLE_CREATED_XRAY_USER=%q\n' "${CREATED_XRAY_USER}"
+        printf 'HLE_CREATED_XRAY_GROUP=%q\n' "${CREATED_XRAY_GROUP}"
         printf 'HLE_REALITY_SNI=%q\n' "${REALITY_SNI}"
         printf 'HLE_REALITY_TARGET=%q\n' "${REALITY_TARGET}"
         printf 'HLE_UUID=%q\n' "${CLIENT_UUID}"
@@ -964,6 +995,11 @@ write_common_mode_state() {
         {
             printf 'HLE_MODE=%q\n' "${MODE}"
             printf 'HLE_SERVER=%q\n' "${SERVER}"
+            printf 'HLE_SERVER_EXPLICIT=%q\n' "${SERVER_EXPLICIT}"
+            printf 'HLE_CREATED_HOME_USER=%q\n' "${CREATED_HOME_USER}"
+            printf 'HLE_CREATED_HOME_GROUP=%q\n' "${CREATED_HOME_GROUP}"
+            printf 'HLE_CREATED_XRAY_USER=%q\n' 0
+            printf 'HLE_CREATED_XRAY_GROUP=%q\n' 0
         } > "${ETC_DIR}/install.env"
         chmod 0600 "${ETC_DIR}/install.env"
         printf 'mode=%s\n' "${MODE}" > "${MARKER}"

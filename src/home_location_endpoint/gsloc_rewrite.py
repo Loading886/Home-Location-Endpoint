@@ -25,8 +25,8 @@ Observed wire format:
 
 "Unknown location" is the sentinel latitude == longitude == -18000000000
 (i.e. -180.00000000), which is a negative int64 -> a 10-byte two's-complement
-varint. Sentinel-only batches are passed through unchanged. Valid batches are
-translated around a new center while retaining their internal geometry.
+varint. A proven sentinel-only batch is replaced by a deterministic micro-cluster
+around the target. Valid batches are translated while retaining their geometry.
 
 The value written into the response is WGS84, which is also the coordinate frame
 returned by the installer's IP/city providers.
@@ -175,7 +175,8 @@ def _scaled(deg):
 
 RESP_HEADER_LEN = 10  # wifi response: r.content[10:] is the BlockBSSIDApple protobuf
 SENTINEL_SCALED = -18000000000  # -180.00000000: locationd "no fix" marker
-NO_FIX_SOURCE = "no-fix-passthrough"
+NO_FIX_SOURCE = "no-fix-synthetic-cluster"
+NO_FIX_CLUSTER_RADIUS_M = 45.0
 
 # The 10-byte response header (confirmed against the live server 2026-07-18) is:
 #   [0:2]  version marker      (0x00 0x01)
@@ -466,11 +467,11 @@ def _coordinate_median(entries):
 def _is_proven_no_fix(entries, block):
     """True only when a response is known to contain no usable coordinates.
 
-    Apple's explicit no-fix sentinel is (-180, -180). Passing such a response
-    through cannot disclose a real coordinate and avoids manufacturing a
-    degenerate batch in which every AP/tower is assigned the same target. An
-    empty protobuf block is also safe. Anything malformed or merely unknown is
-    deliberately not classified as no-fix, so the interceptor can fail closed.
+    Apple's explicit no-fix sentinel is (-180, -180). A response containing only
+    those sentinels can safely become a bounded synthetic cluster around the
+    selected target. An empty protobuf block is also safe. Anything malformed or
+    merely unknown is deliberately not classified as no-fix, so the interceptor
+    can fail closed.
     """
     if not block:
         return True
@@ -479,6 +480,95 @@ def _is_proven_no_fix(entries, block):
         entry["lat"] == -180.0 and entry["lon"] == -180.0
         for entry in locations
     )
+
+
+def _cluster_offsets(entries, radius_m=NO_FIX_CLUSTER_RADIUS_M):
+    """Return centered deterministic (north, east) offsets for located entries."""
+    located = [
+        (index, entry)
+        for index, entry in enumerate(entries)
+        if entry["has_location"]
+    ]
+    if not located:
+        return {}
+    if len(located) == 1:
+        return {located[0][0]: (0.0, 0.0)}
+
+    raw = []
+    for index, entry in located:
+        identity = repr((
+            index,
+            entry["kind"],
+            entry.get("bssid"),
+            entry.get("cell_key"),
+        )).encode("utf-8")
+        digest = hashlib.sha256(identity).digest()
+        angle = int.from_bytes(digest[:8], "big") / float(1 << 64) * 2 * math.pi
+        radial = 0.35 + 0.65 * int.from_bytes(digest[8:16], "big") / float(1 << 64)
+        raw.append((index, radial * math.cos(angle), radial * math.sin(angle)))
+
+    mean_north = sum(item[1] for item in raw) / len(raw)
+    mean_east = sum(item[2] for item in raw) / len(raw)
+    centered = [
+        (index, north - mean_north, east - mean_east)
+        for index, north, east in raw
+    ]
+    extent = max(math.hypot(north, east) for _index, north, east in centered)
+    if extent < 1e-12:
+        return {
+            index: (
+                radius_m * math.cos(2 * math.pi * order / len(centered)),
+                radius_m * math.sin(2 * math.pi * order / len(centered)),
+            )
+            for order, (index, _north, _east) in enumerate(centered)
+        }
+    scale = radius_m / extent
+    return {
+        index: (north * scale, east * scale)
+        for index, north, east in centered
+    }
+
+
+def synthesize_no_fix_block(block_bytes, target, accuracy=None):
+    """Replace sentinel-only locations with a centered, non-degenerate cluster."""
+    entries = decode_block(block_bytes)
+    offsets = _cluster_offsets(entries)
+    if not offsets:
+        return block_bytes, 0
+
+    out = bytearray()
+    entry_index = 0
+    count = 0
+    for field in parse_fields(block_bytes):
+        if field.wire_type == WIRE_LEN and field.field_no == WIFI_ENTRY_FIELD:
+            location_field = WIFI_LOCATION_FIELD
+            entry_accuracy = 25 if accuracy is None else accuracy
+        elif field.wire_type == WIRE_LEN and field.field_no in CELL_ENTRY_FIELDS:
+            location_field = CELL_LOCATION_FIELD
+            # A sentinel cell fix normally carries accuracy=-1. Once coordinates
+            # are supplied, use a plausible kilometre-scale cellular accuracy.
+            entry_accuracy = max(1000, int(accuracy or 0))
+        else:
+            out += field.raw
+            continue
+
+        offset = offsets.get(entry_index)
+        entry_index += 1
+        if offset is None:
+            out += field.raw
+            continue
+        point = offset_coordinate(
+            target[0], target[1], offset[0], offset[1]
+        )
+        replacement, changed = _rewrite_entry(
+            field.value, location_field, point[0], point[1], entry_accuracy
+        )
+        if changed:
+            out += len_field(field.field_no, replacement)
+            count += 1
+        else:
+            out += field.raw
+    return bytes(out), count
 
 
 def resolve_translation_anchor(entries, request_context=None):
@@ -608,7 +698,15 @@ def translate_response(body, target_lat, target_lon, request_body=None, accuracy
     anchor, source = resolve_translation_anchor(entries, context)
     if anchor is None:
         if _is_proven_no_fix(entries, block):
-            return body, 0, None, NO_FIX_SOURCE
+            new_block, count = synthesize_no_fix_block(
+                block, (target_lat, target_lon), accuracy=accuracy
+            )
+            return (
+                _with_block_length(header, len(new_block)) + new_block,
+                count,
+                None,
+                NO_FIX_SOURCE,
+            )
         raise ValueError("WLOC response has no safe translation anchor")
     new_block, count = translate_block(
         block, anchor, (target_lat, target_lon), accuracy=accuracy
