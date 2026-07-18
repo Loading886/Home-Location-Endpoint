@@ -1,0 +1,11 @@
+/var/log/home-location-endpoint/*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su home-location home-location
+    create 0600 home-location home-location
+}

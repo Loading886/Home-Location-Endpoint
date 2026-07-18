@@ -1,0 +1,1 @@
+"""Home Location Endpoint tests."""

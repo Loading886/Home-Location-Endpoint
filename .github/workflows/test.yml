@@ -1,0 +1,31 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --disable-pip-version-check -e . ruff==0.15.22
+      - run: python -m ruff check src tests
+      - run: python -m unittest discover -v
+      - run: bash -n install.sh tests/integration_xray.sh
+      - run: shellcheck --severity=style install.sh tests/integration_xray.sh
+      - if: matrix.python-version == '3.12'
+        run: bash tests/integration_xray.sh
+      - name: Public-tree secret and private-topology guard
+        run: |
+          ! grep -RInE '[K]Cloud|mobile-[k]cloud|150\.158\.13\.40|8771876423:|BEGIN (OPENSSH|RSA|EC) PRIVATE KEY' \
+            --exclude-dir=.git .
