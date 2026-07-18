@@ -1114,7 +1114,8 @@ $(cat "${ETC_DIR}/node-uri.txt")
 
 iOS CA profile / iOS CA 描述文件: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
 CA SHA-256 / CA SHA-256 指纹: ${fingerprint}
-Temporary phone download / 手机临时下载: sudo hle profile serve
+Temporary phone download starts automatically below.
+下方将自动启动手机临时下载。
 EOF
         if [[ "${SERVER_EXPLICIT}" -eq 0 ]]; then
             cat <<EOF
@@ -1159,7 +1160,8 @@ ${PROJECT} 仅定位修改器模式安装完成。
 Random location city / 随机定位城市: ${city}
 iOS CA profile / iOS CA 描述文件: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
 CA SHA-256 / CA SHA-256 指纹: ${fingerprint}
-Temporary phone download / 手机临时下载: sudo hle profile serve --host <手机可访问地址>
+Temporary phone download starts automatically below.
+下方将自动启动手机临时下载。
 Loopback interceptor / 本机定位拦截器: 127.0.0.1:10451
 Xray integration example / Xray 接入示例: ${ETC_DIR}/xray-location-routing.example.json
 
@@ -1178,6 +1180,42 @@ Remove everything this mode installed (it never touches your proxy core) with: s
 No proxy core, proxy port, firewall rule, or TCP tuning was installed in this mode.
 本模式没有安装代理核心、代理端口、防火墙规则或 TCP 调优。
 EOF
+}
+
+interactive_output() {
+    [[ -t 1 ]]
+}
+
+serve_profile_download() {
+    /usr/local/sbin/hle profile serve
+}
+
+auto_serve_profile() {
+    if ! interactive_output; then
+        cat <<'EOF'
+
+Non-interactive output detected; the temporary CA download was not started.
+检测到非交互式输出；未自动启动 CA 临时下载服务。
+Run later / 稍后运行: sudo hle profile serve
+EOF
+        return 0
+    fi
+
+    cat <<'EOF'
+
+Starting the one-time CA profile download now. It closes after one successful
+download or 100 minutes. Press Ctrl+C to close it without affecting the installation.
+正在启动一次性 CA 描述文件下载。首次成功下载或 100 分钟后自动关闭；
+按 Ctrl+C 可提前关闭，不会影响已经完成的安装。
+EOF
+    if ! serve_profile_download; then
+        cat >&2 <<'EOF'
+WARNING: the endpoint installation is complete, but the temporary CA download
+could not start. Run it again later with: sudo hle profile serve
+警告：节点安装已经完成，但 CA 临时下载未能启动。请稍后重新运行：
+sudo hle profile serve
+EOF
+    fi
 }
 
 main() {
@@ -1221,6 +1259,7 @@ main() {
         open_active_firewall
     fi
     show_result
+    auto_serve_profile
 }
 
 if [[ "${HLE_SOURCE_ONLY:-0}" != "1" ]]; then

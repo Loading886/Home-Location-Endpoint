@@ -58,11 +58,11 @@ sysctl 调优在下次重启前仍然生效。卸载不会删除已装到 iPhone
 不要用未经审查的 `rm -rf` 清理混合环境；如果安装被强制中断留下半套状态，先按下文
 “事务与失败边界”排查后再决定用 `hle uninstall` 或手动恢复备份。
 
-例如固定安装 `v0.1.6`：
+例如固定安装 `v0.1.7`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.6/install.sh \
-  | sudo env HLE_VERSION=v0.1.6 bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.7/install.sh \
+  | sudo env HLE_VERSION=v0.1.7 bash
 ```
 
 ## 事务与失败边界
@@ -98,12 +98,14 @@ sudo ss -lntup
 
 ### 临时下载 CA 描述文件
 
+交互式安装成功后，安装器会自动运行下列命令，无需用户再次输入：
+
 ```bash
 sudo hle profile serve
 ```
 
 该命令只提供带随机令牌的 `.mobileconfig`，默认监听 TCP `18080`，有效 100 分钟，并在首次成功
-下载后关闭。终端支持时会显示二维码。它使用临时 HTTP，因此必须通过 SSH 终端显示的 SHA-256
+下载后关闭。终端支持时会显示二维码。以后需要重新下载时仍可手动运行该命令。它使用临时 HTTP，因此必须通过 SSH 终端显示的 SHA-256
 核对 CA；不会自动修改 UFW、云安全组、NAT 或 Realm。入口地址无法自动判断时使用：
 
 ```bash
@@ -112,6 +114,9 @@ sudo hle profile serve --host PHONE_REACHABLE_IP_OR_HOST
 
 可用 `--port 0` 选择随机空闲端口，或用 `--timeout-minutes 100` 调整有效期；随机端口仍需能够
 从手机到达。下载过程中按 `Ctrl+C` 会立即关闭服务。
+
+cloud-init、Ansible 等无交互终端安装会跳过自动启动，避免部署任务被最长 100 分钟的等待阻塞；
+安装本身仍会正常完成，并在输出中给出稍后手动启动的命令。
 
 仅定位模式没有 `xray.service`。`hle verify` 检查 Xray/示例 JSON、证书链与有效期、叶证书 key、
 描述文件内 CA、坐标、受管文件权限、回环监听和服务状态。

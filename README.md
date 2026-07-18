@@ -118,9 +118,10 @@ TCP 调优或防火墙规则。
 
 ## iPhone 设置
 
-1. 在服务器运行 `sudo hle profile serve`，用 iPhone Safari 打开输出的随机下载地址或扫描终端
-   二维码。链接默认有效 100 分钟，并在首次成功下载后立即关闭。仅定位模式或 NAT/Realm 场景
-   如未记录手机可达地址，使用 `--host <手机可访问地址>`。
+1. 交互式安装成功后，安装器会自动启动 `hle profile serve`。用 iPhone Safari 打开输出的随机
+   下载地址或扫描终端二维码。链接默认有效 100 分钟，并在首次成功下载后立即关闭。以后需要
+   重新下载时可手动运行 `sudo hle profile serve`；NAT/Realm 场景如需覆盖入口地址，使用
+   `--host <手机可访问地址>`。
 2. 核对终端输出的 CA SHA-256 指纹。该临时服务使用 HTTP，只应短时开放下载端口；如需更强的
    传输保护，请改用 SCP、SFTP 或自行配置的可信 HTTPS。
 3. 安装描述文件。
@@ -150,7 +151,8 @@ sudo hle uninstall
 `hle profile serve` 默认在 TCP `18080` 启动带随机令牌的一次性 HTTP 下载，100 分钟后或首次
 成功下载后自动退出，不提供目录浏览，也不会暴露 CA 私钥。UFW、云安全组、NAT 或 Realm 不会
 被自动修改；需要临时让手机能够到达该端口。可用 `--port`、`--host`、`--bind`、
-`--timeout-minutes` 和 `--no-qr` 调整行为。
+`--timeout-minutes` 和 `--no-qr` 调整行为。无交互终端的 cloud-init、Ansible 等自动化安装不会
+启动这个最长阻塞 100 分钟的下载服务；安装器会输出命令，待需要时再运行。
 
 `sudo hle uninstall` 停止并删除本项目安装的服务、受管文件与受限 CA，并在确认后执行
 （脚本化可加 `--yes`）。完整模式还会删除受管的 Xray、其配置和 TCP sysctl 文件；仅定位模式
