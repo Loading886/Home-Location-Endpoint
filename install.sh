@@ -26,10 +26,9 @@ EXISTING_MODE=""
 MODE_EXPLICIT=0
 PROXY_OPTION_EXPLICIT=0
 SERVER_EXPLICIT=0
-REALITY_SNI=""
-REALITY_TARGET=""
+REALITY_SNI="www.usc.edu"
+REALITY_TARGET="www.usc.edu:443"
 LISTEN_ADDRESS="0.0.0.0"
-REALITY_EXPLICIT=0
 ROTATE_CA=0
 TRANSACTION_BACKUP=""
 TRANSACTION_STARTED=0
@@ -61,11 +60,9 @@ Usage: sudo bash install.sh [options]
   --mode MODE              full or modifier-only (interactive when omitted)
   --port PORT              VLESS + REALITY listening port (default: 443, full mode)
   --server HOST_OR_IP      address written into the client URI (default: detected egress IP)
-  --reality-sni HOST       override the random validated REALITY SNI (full mode)
-  --reality-target H:P     override target for an explicit SNI (default: SNI:443, full mode)
   --rotate-ca              replace the scoped CA and leaf certificate
 
---port, --server, --reality-sni, and --reality-target apply to full mode only.
+--port and --server apply to full mode only. REALITY SNI is fixed to www.usc.edu.
 Remove a completed installation later with: sudo hle uninstall
 The installer never changes SSH ports, keys, or passwords. Full mode may add its TCP port to an already-active UFW policy.
 EOF
@@ -303,7 +300,7 @@ bootstrap_if_needed() {
     [[ -n "${extracted}" ]] || die "downloaded archive did not contain a source directory"
     [[ -f "${extracted}/install.sh" \
       && -f "${extracted}/src/home_location_endpoint/interceptor.py" \
-      && -f "${extracted}/configs/reality-sni.txt" ]] \
+      && -f "${extracted}/src/home_location_endpoint/reality_probe.py" ]] \
         || die "downloaded archive is missing required project files"
     HLE_BOOTSTRAP_TEMP="${temporary}" exec bash "${extracted}/install.sh" "$@"
 }
@@ -370,20 +367,6 @@ parse_args() {
                 [[ $# -ge 2 ]] || die "--server needs a value"
                 SERVER="$2"
                 SERVER_EXPLICIT=1
-                PROXY_OPTION_EXPLICIT=1
-                shift 2
-                ;;
-            --reality-sni)
-                [[ $# -ge 2 ]] || die "--reality-sni needs a value"
-                REALITY_SNI="$2"
-                REALITY_EXPLICIT=1
-                PROXY_OPTION_EXPLICIT=1
-                shift 2
-                ;;
-            --reality-target)
-                [[ $# -ge 2 ]] || die "--reality-target needs a value"
-                REALITY_TARGET="$2"
-                REALITY_EXPLICIT=1
                 PROXY_OPTION_EXPLICIT=1
                 shift 2
                 ;;
@@ -635,25 +618,13 @@ install_packages() {
     fi
 }
 
-validate_reality_sni() {
-    PYTHONPATH="${SOURCE_DIR}/src" python3 -c \
-        'import sys; from home_location_endpoint.render import validate_host; validate_host(sys.argv[1], allow_ip=False)' \
-        "$1"
-}
-
 validate_explicit_overrides() {
-    # Reject a malformed --server/--reality-sni in the first second, before the
-    # transaction, the Xray download, certificate generation, and the live SNI
-    # probing -- otherwise a simple typo only fails deep in the install and
-    # triggers a full rollback. Runs after install_packages so python3 exists.
+    # Reject a malformed --server before the transaction, the Xray download,
+    # and certificate generation. Runs after install_packages so python3 exists.
     if [[ "${SERVER_EXPLICIT}" -eq 1 && -n "${SERVER}" ]]; then
         PYTHONPATH="${SOURCE_DIR}/src" python3 -c \
             'import sys; from home_location_endpoint.render import validate_host; validate_host(sys.argv[1], allow_ip=True)' \
             "${SERVER}" 2>/dev/null || die "invalid --server address: ${SERVER}"
-    fi
-    if [[ "${REALITY_EXPLICIT}" -eq 1 && -n "${REALITY_SNI}" ]]; then
-        validate_reality_sni "${REALITY_SNI}" 2>/dev/null \
-            || die "invalid --reality-sni hostname: ${REALITY_SNI}"
     fi
 }
 
@@ -663,33 +634,10 @@ tls_target_works() {
         "${sni}" "${target}" >/dev/null 2>&1
 }
 
-select_reality_target() {
-    local candidate
-    local -a candidates=()
-    note "Selecting a random REALITY SNI with valid TLS 1.3 and HTTP/2"
-    if [[ "${REALITY_EXPLICIT}" -eq 1 ]]; then
-        [[ -n "${REALITY_SNI}" ]] || die "--reality-target also requires --reality-sni"
-        validate_reality_sni "${REALITY_SNI}" || die "invalid explicit REALITY SNI"
-        [[ -n "${REALITY_TARGET}" ]] || REALITY_TARGET="${REALITY_SNI}:443"
-        tls_target_works "${REALITY_SNI}" "${REALITY_TARGET}" \
-            || die "REALITY target ${REALITY_TARGET} did not validate for SNI ${REALITY_SNI}"
-        return
-    fi
-
-    mapfile -t candidates < <(
-        grep -Ev '^[[:space:]]*(#|$)' "${SOURCE_DIR}/configs/reality-sni.txt" | shuf
-    )
-    ((${#candidates[@]} > 0)) || die "REALITY SNI candidate list is empty"
-    for candidate in "${candidates[@]}"; do
-        validate_reality_sni "${candidate}" || continue
-        if tls_target_works "${candidate}" "${candidate}:443"; then
-            REALITY_SNI="${candidate}"
-            REALITY_TARGET="${candidate}:443"
-            printf 'Selected REALITY SNI: %s\n' "${REALITY_SNI}"
-            return
-        fi
-    done
-    die "none of the randomized REALITY SNI candidates passed live TLS validation"
+validate_fixed_reality_target() {
+    note "Validating fixed REALITY SNI ${REALITY_SNI} with TLS 1.3 and HTTP/2"
+    tls_target_works "${REALITY_SNI}" "${REALITY_TARGET}" \
+        || die "fixed REALITY target ${REALITY_TARGET} did not validate for SNI ${REALITY_SNI}"
 }
 
 generate_fallback_limits() {
@@ -1244,7 +1192,7 @@ main() {
     generate_certificates
     render_ca_profile
     if [[ "${MODE}" == "full" ]]; then
-        select_reality_target
+        validate_fixed_reality_target
         generate_fallback_limits
         load_or_create_credentials
         render_and_validate

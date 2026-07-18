@@ -17,8 +17,8 @@
   不限制 CPU 架构。
 - 可交互选择完整代理端点或仅定位修改器。
 - 完整模式自动安装并校验固定版本的 Xray-core，生成 VLESS + REALITY + Vision 节点。
-- 完整模式每次运行安装器都会随机打乱内置 SNI 池，并选用首个通过现场证书、TLS 1.3 与
-  HTTP/2 校验的站点。
+- 完整模式固定使用 `www.usc.edu:443` 作为 REALITY SNI/target，并在落地机现场校验证书、
+  TLS 1.3 与 HTTP/2。
 - 通过公网出口 IP 识别城市，再从该城市的 OpenStreetMap 行政边界内随机抽取 WGS84 坐标。
 - 若无法取得城市边界，则在 IP 定位中心附近 3 km 内随机回退，并明确标记回退状态。
 - 只路由 Apple 网络定位域名到本机拦截器；其他域名不会经过定位拦截器。
@@ -31,7 +31,7 @@
 - 内核可用时使用显式 IPv4/IPv6 双栈监听；只支持 IPv4 的主机自动保持 IPv4 监听。
 - 对定位域名阻断 QUIC/UDP 443，促使其回退到能够被限定拦截器处理的 TCP；普通域名不受影响。
 - 安装器不修改 SSH 端口、SSH 密钥、密码，也不会主动启用原本关闭的 UFW。
-- 重复安装或执行 `sudo hle relocate` 会重新随机选点；完整模式重跑安装器还会更换 SNI。
+- 重复安装或执行 `sudo hle relocate` 会重新随机选点；完整模式始终保持固定 SNI。
 
 ## 工作方式
 
@@ -83,24 +83,9 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/m
   | sudo bash -s -- --mode modifier-only
 ```
 
-完整模式默认从仓库内的去重候选池随机打乱，逐个检查 TLS 1.3、HTTP/2、证书链和主机名，
-使用首个校验成功的 SNI。也可以显式覆盖：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
-  | sudo bash -s -- \
-      --mode full \
-      --port 443 \
-      --reality-sni www.aws.com \
-      --reality-target www.aws.com:443
-```
-
-REALITY 的 SNI/target 必须能从该服务器正常建立 TLS，且证书应匹配 SNI。生产使用时优先选择
-与服务器网络位置合适、长期稳定、不是通用 CDN 开放转发目标的站点。候选池来自操作者提供的
-名单，进入池中不代表项目对站点可用性、安全性或长期稳定性作保证。
-
-> 完整模式每次重跑安装器都会重新选择 SNI，即使 UUID、X25519 密钥和 short ID 被复用，
-> VLESS URI 也会变化。重跑后必须把新 URI 更新到客户端及所有使用该参数的配置中。
+完整模式固定使用 `www.usc.edu` 作为 REALITY SNI，并连接 `www.usc.edu:443`。安装时仍会从落地
+服务器现场检查证书链、主机名、TLS 1.3 和 HTTP/2；检查失败会停止安装，不会回退到其他 SNI。
+安装器不再接受 `--reality-sni` 或 `--reality-target` 覆盖，避免不同节点产生参数漂移。
 
 默认 URI 中的服务器地址来自落地机检测到的公网**出口** IP。若落地机位于 NAT 后、入口与出口
 地址不同，或客户端先连接 Realm 前置机，必须用 `--server <客户端实际连接的入口地址>`；前后端
@@ -162,7 +147,7 @@ sudo hle uninstall
 
 `hle relocate` 会在服务器当前公网出口 IP 所在城市重新随机取点。拦截器按文件变更自动加载，
 无需重启。安装器再次运行时同样会重新抽点，并默认复用既有 CA。完整模式会复用 UUID、
-X25519 密钥与 short ID，但会重新选择 SNI；`--rotate-ca` 才会轮换 CA。
+X25519 密钥、short ID 与固定 SNI；`--rotate-ca` 才会轮换 CA。
 
 重复安装时，如果 IP 定位服务临时不可用，安装器会验证并保留已有坐标，而不是中断一台原本
 正常的节点；首次安装没有可用旧坐标时仍会安全失败。软件包安装、系统账户创建和失败日志不在

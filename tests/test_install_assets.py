@@ -25,18 +25,14 @@ class InstallAssetTests(unittest.TestCase):
         self.assertIsNotNone(package_version)
         self.assertEqual(project_version.group(1), package_version.group(1))
 
-    def test_reality_sni_pool_is_unique_and_valid(self):
-        entries = [
-            line.strip()
-            for line in (ROOT / "configs" / "reality-sni.txt").read_text(
-                encoding="utf-8"
-            ).splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
-        self.assertEqual(len(entries), 32)
-        self.assertEqual(len(entries), len(set(entries)))
-        for entry in entries:
-            self.assertEqual(render.validate_host(entry, allow_ip=False), entry)
+    def test_installer_uses_only_the_fixed_reality_sni(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn('REALITY_SNI="www.usc.edu"', installer)
+        self.assertIn('REALITY_TARGET="www.usc.edu:443"', installer)
+        self.assertNotIn("reality-sni.txt", installer)
+        self.assertNotIn("shuf", installer)
+        self.assertNotIn("--reality-sni)", installer)
+        self.assertNotIn("--reality-target)", installer)
 
     def test_modifier_only_xray_fragment_matches_full_mode(self):
         fragment = json.loads(
