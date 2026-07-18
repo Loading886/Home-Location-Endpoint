@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8 - 2026-07-18
+
+- Replace the randomized REALITY SNI pool with the fixed
+  `www.usc.edu` / `www.usc.edu:443` pair. The installer still performs live
+  certificate, TLS 1.3, HTTP/2, and public-address validation, but no longer
+  falls back to another hostname or accepts SNI/target overrides.
+
 ## 0.1.7 - 2026-07-18
 
 - Automatically start the one-time CA profile download after a successful

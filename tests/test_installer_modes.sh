@@ -31,6 +31,20 @@ select_install_mode
 [[ "${MODE}" == "modifier-only" ]]
 
 if (
+    parse_args --reality-sni example.com >/dev/null 2>&1
+); then
+    printf 'installer accepted the removed --reality-sni override\n' >&2
+    exit 1
+fi
+
+(
+    tls_target_works() {
+        [[ "$1" == "www.usc.edu" && "$2" == "www.usc.edu:443" ]]
+    }
+    validate_fixed_reality_target >/dev/null
+)
+
+if (
     reset_mode_state
     MODE="modifier-only"
     PROXY_OPTION_EXPLICIT=1

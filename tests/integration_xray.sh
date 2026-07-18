@@ -27,7 +27,7 @@ PYTHONPATH=src python3 -m home_location_endpoint.render \
     --profile "${TEMPORARY}/profile.mobileconfig" \
     --ca-der "${TEMPORARY}/ca.der" \
     --server 203.0.113.9 --port 443 --uuid "${CLIENT_UUID}" \
-    --reality-sni www.microsoft.com --reality-target www.microsoft.com:443 \
+    --reality-sni www.usc.edu --reality-target www.usc.edu:443 \
     --private-key="${PRIVATE_KEY}" --public-key="${PUBLIC_KEY}" \
     --short-id 0123456789abcdef \
     --listen :: \
