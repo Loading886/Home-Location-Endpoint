@@ -35,7 +35,7 @@ ReadWritePaths=/var/log/home-location-endpoint
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 CapabilityBoundingSet=
 SystemCallArchitectures=native
-TasksMax=128
+TasksMax=64
 MemoryMax=256M
 
 [Install]

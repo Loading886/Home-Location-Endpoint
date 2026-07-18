@@ -6,7 +6,7 @@ from home_location_endpoint import render
 
 UUID = "12345678-1234-4234-8234-123456789abc"
 PRIVATE_KEY = "A" * 43
-PUBLIC_KEY = "B" * 43
+PUBLIC_KEY = "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI"
 SHORT_ID = "0123456789abcdef"
 
 
@@ -29,7 +29,9 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(inbound["sniffing"]["routeOnly"])
         self.assertEqual(config["outbounds"][0]["tag"], "direct")
 
-        rule = config["routing"]["rules"][0]
+        quic_rule, rule = config["routing"]["rules"]
+        self.assertEqual(quic_rule["network"], "udp")
+        self.assertEqual(quic_rule["outboundTag"], "block-location-quic")
         self.assertEqual(rule["port"], "443")
         self.assertEqual(rule["network"], "tcp")
         self.assertEqual(rule["domain"], render.LOCATION_DOMAINS)
@@ -43,6 +45,7 @@ class RenderTests(unittest.TestCase):
             "ip": ["127.0.0.1/32"],
             "port": "10451",
         }])
+        self.assertEqual(config["outbounds"][2]["protocol"], "blackhole")
 
     def test_uri_contains_reality_vision_parameters(self):
         uri = render.build_vless_uri(
@@ -61,16 +64,23 @@ class RenderTests(unittest.TestCase):
         self.assertIn("packetEncoding=xudp", uri)
 
     def test_ca_profile_contains_only_one_certificate_payload(self):
-        profile = plistlib.loads(render.build_ca_profile(b"fake-der"))
+        encoded = render.build_ca_profile(b"fake-der")
+        profile = plistlib.loads(encoded)
         self.assertEqual(profile["PayloadType"], "Configuration")
         self.assertEqual(len(profile["PayloadContent"]), 1)
         payload = profile["PayloadContent"][0]
         self.assertEqual(payload["PayloadType"], "com.apple.security.root")
         self.assertEqual(payload["PayloadContent"], b"fake-der")
+        self.assertEqual(encoded, render.build_ca_profile(b"fake-der"))
+        self.assertNotEqual(encoded, render.build_ca_profile(b"different-der"))
 
     def test_rejects_odd_short_id(self):
         with self.assertRaises(ValueError):
             render.validate_short_id("abc")
+
+    def test_rejects_noncanonical_x25519_key(self):
+        with self.assertRaises(ValueError):
+            render.validate_key("B" * 43, "REALITY public key")
 
     def test_rejects_invalid_reality_sni(self):
         with self.assertRaises(ValueError):
@@ -82,6 +92,46 @@ class RenderTests(unittest.TestCase):
                 private_key=PRIVATE_KEY,
                 short_id=SHORT_ID,
             )
+
+    def test_fallback_limits_are_validated_and_rendered(self):
+        limit = {
+            "afterBytes": 8 * 1024 * 1024,
+            "bytesPerSec": 768 * 1024,
+            "burstBytesPerSec": 3 * 1024 * 1024,
+        }
+        config = render.build_xray_config(
+            port=443,
+            client_uuid=UUID,
+            reality_sni="www.microsoft.com",
+            reality_target="www.microsoft.com:443",
+            private_key=PRIVATE_KEY,
+            short_id=SHORT_ID,
+            fallback_upload=limit,
+            fallback_download=limit,
+        )
+        settings = config["inbounds"][0]["streamSettings"]["realitySettings"]
+        self.assertEqual(settings["limitFallbackUpload"], limit)
+        self.assertEqual(settings["limitFallbackDownload"], limit)
+        with self.assertRaises(ValueError):
+            render.validate_fallback_limit({
+                "afterBytes": 1,
+                "bytesPerSec": 10,
+                "burstBytesPerSec": 1,
+            })
+
+    def test_dual_stack_listener_is_explicit(self):
+        config = render.build_xray_config(
+            port=443,
+            client_uuid=UUID,
+            reality_sni="www.microsoft.com",
+            reality_target="www.microsoft.com:443",
+            private_key=PRIVATE_KEY,
+            short_id=SHORT_ID,
+            listen_host="::",
+        )
+        inbound = config["inbounds"][0]
+        self.assertEqual(inbound["listen"], "::")
+        self.assertEqual(inbound["streamSettings"]["sockopt"], {"v6only": False})
 
 
 if __name__ == "__main__":

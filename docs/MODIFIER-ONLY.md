@@ -34,12 +34,16 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/m
 
 再把示例文件中的两部分合并进现有配置：
 
-1. 将 `outbounds[0]` 加入现有 `outbounds`；`tag` 必须保持为 `location-interceptor`。
-2. 将 `routing.rules[0]` 放在可能提前匹配 Apple 域名的宽泛规则之前。
+1. 将示例的两个 outbound 加入现有 `outbounds`；tag 必须保持为
+   `location-interceptor` 和 `block-location-quic`。
+2. 将示例的两条 routing rule 按原顺序放在可能提前匹配 Apple 域名的宽泛规则之前。
 
 示例规则只匹配 Apple 网络定位域名的 TCP/443，并把已解密后的内层目标连接重定向到回环
 拦截器。不要把 VLESS/REALITY 的外层加密连接直接 DNAT 到 `10451`；定位修改器无法解析代理
 外层协议。
+
+第一条规则只阻断定位域名的 UDP/443，使 iOS 从 QUIC 回退 TCP；第二条才把 TCP/443 送到
+回环拦截器。删掉第一条会重新引入未改写 QUIC 直出的可能，扩大到其他域名则会误伤普通流量。
 
 如果使用其他代理核心，必须具备等价能力：在代理认证与解密后取得 TLS SNI，仅将文档列出的
 Apple 定位域名送到 `127.0.0.1:10451`，其他目标保持原目的地址。

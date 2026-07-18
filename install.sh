@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+export LC_ALL=C
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+umask 022
 
 PROJECT="Home-Location-Endpoint"
 REPOSITORY="https://github.com/Loading886/Home-Location-Endpoint"
@@ -16,6 +19,7 @@ XRAY_CONFIG_DIR="/usr/local/etc/xray"
 MARKER="${ETC_DIR}/managed-by-installer"
 
 PORT="443"
+PREVIOUS_PORT=""
 SERVER=""
 MODE=""
 EXISTING_MODE=""
@@ -23,9 +27,18 @@ MODE_EXPLICIT=0
 PROXY_OPTION_EXPLICIT=0
 REALITY_SNI=""
 REALITY_TARGET=""
+LISTEN_ADDRESS="0.0.0.0"
 REALITY_EXPLICIT=0
 ROTATE_CA=0
-XRAY_BACKUP=""
+TRANSACTION_BACKUP=""
+TRANSACTION_STARTED=0
+TRANSACTION_COMMITTED=0
+HOME_WAS_ACTIVE=0
+HOME_WAS_ENABLED=0
+XRAY_WAS_ACTIVE=0
+XRAY_WAS_ENABLED=0
+TEMP_DIRS=()
+ROLLBACK_PATHS=()
 
 die() {
     printf 'ERROR: %s\n' "$*" >&2
@@ -36,10 +49,43 @@ note() {
     printf '\n==> %s\n' "$*"
 }
 
+print_help() {
+    cat <<'EOF'
+Usage: sudo bash install.sh [options]
+
+  --mode MODE              full or modifier-only (interactive when omitted)
+  --port PORT              VLESS + REALITY listening port (default: 443)
+  --server HOST_OR_IP      address written into the client URI (default: detected egress IP)
+  --reality-sni HOST       override the random validated REALITY SNI
+  --reality-target H:P     override target for an explicit SNI (default: SNI:443)
+  --rotate-ca              replace the scoped CA and leaf certificate
+
+The installer never changes SSH ports, keys, or passwords. Full mode may add its TCP port to an already-active UFW policy.
+EOF
+}
+
+show_help_if_requested() {
+    local argument
+    for argument in "$@"; do
+        if [[ "${argument}" == "-h" || "${argument}" == "--help" ]]; then
+            print_help
+            exit 0
+        fi
+    done
+}
+
 cleanup() {
-    if [[ -n "${XRAY_BACKUP}" && -f "${XRAY_BACKUP}" ]]; then
-        rm -f "${XRAY_BACKUP}"
+    local status=$?
+    trap - EXIT
+    set +e
+    if [[ "${TRANSACTION_STARTED}" -eq 1 && "${TRANSACTION_COMMITTED}" -eq 0 ]]; then
+        rollback_transaction
     fi
+    local temporary
+    for temporary in "${TEMP_DIRS[@]}"; do
+        [[ -n "${temporary}" ]] && rm -rf -- "${temporary}"
+    done
+    exit "${status}"
 }
 
 trap cleanup EXIT
@@ -48,8 +94,169 @@ require_root() {
     [[ "${EUID}" -eq 0 ]] || die "run this installer as root"
 }
 
+register_temp_dir() {
+    TEMP_DIRS+=("$1")
+}
+
+path_exists() {
+    [[ -e "$1" || -L "$1" ]]
+}
+
+reject_symlink_if_present() {
+    [[ ! -L "$1" ]] || die "managed path must not be a symlink: $1"
+}
+
+root_owned_not_group_world_writable() {
+    [[ "$(stat -c %u "$1" 2>/dev/null || printf invalid)" == "0" \
+      && -z "$(find "$1" -maxdepth 0 -perm /022 -print -quit 2>/dev/null)" ]]
+}
+
+restore_service_state() {
+    local service="$1" was_active="$2" was_enabled="$3"
+    if [[ "${was_enabled}" -eq 1 ]]; then
+        systemctl enable "${service}" >/dev/null 2>&1 || true
+    else
+        systemctl disable "${service}" >/dev/null 2>&1 || true
+    fi
+    if [[ "${was_active}" -eq 1 ]]; then
+        systemctl restart "${service}" >/dev/null 2>&1 || true
+    else
+        systemctl stop "${service}" >/dev/null 2>&1 || true
+    fi
+}
+
+rollback_transaction() {
+    local index path backup_path state
+    printf '\n==> Installation failed; restoring the previous managed state\n' >&2
+    systemctl stop home-location-endpoint.service >/dev/null 2>&1 || true
+    if [[ "${MODE:-}" == "full" ]]; then
+        systemctl stop xray.service >/dev/null 2>&1 || true
+    fi
+    for index in "${!ROLLBACK_PATHS[@]}"; do
+        path="${ROLLBACK_PATHS[${index}]}"
+        backup_path="${TRANSACTION_BACKUP}/items/${index}"
+        state="$(<"${TRANSACTION_BACKUP}/state/${index}")"
+        rm -rf -- "${path}"
+        if [[ "${state}" == "present" ]]; then
+            mkdir -p -- "$(dirname -- "${path}")"
+            cp -a -- "${backup_path}" "${path}"
+        fi
+    done
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    restore_service_state home-location-endpoint.service \
+        "${HOME_WAS_ACTIVE}" "${HOME_WAS_ENABLED}"
+    if [[ "${MODE:-}" == "full" ]]; then
+        restore_service_state xray.service "${XRAY_WAS_ACTIVE}" "${XRAY_WAS_ENABLED}"
+    fi
+}
+
+begin_transaction() {
+    local index path
+    TRANSACTION_BACKUP="$(mktemp -d)"
+    register_temp_dir "${TRANSACTION_BACKUP}"
+    mkdir -p "${TRANSACTION_BACKUP}/items" "${TRANSACTION_BACKUP}/state"
+    ROLLBACK_PATHS=(
+        "${ETC_DIR}"
+        "${APP_DIR}"
+        "${STATE_DIR}"
+        /usr/local/sbin/hle
+        /etc/systemd/system/home-location-endpoint.service
+        /etc/logrotate.d/home-location-endpoint
+    )
+    if [[ "${MODE}" == "full" ]]; then
+        ROLLBACK_PATHS+=(
+            "${XRAY_CONFIG_DIR}"
+            /usr/local/bin/xray
+            /etc/systemd/system/xray.service
+            /etc/sysctl.d/99-home-location-endpoint.conf
+        )
+    fi
+    systemctl is-active --quiet home-location-endpoint.service && HOME_WAS_ACTIVE=1
+    systemctl is-enabled --quiet home-location-endpoint.service && HOME_WAS_ENABLED=1
+    if [[ "${MODE}" == "full" ]]; then
+        systemctl is-active --quiet xray.service && XRAY_WAS_ACTIVE=1
+        systemctl is-enabled --quiet xray.service && XRAY_WAS_ENABLED=1
+    fi
+    for index in "${!ROLLBACK_PATHS[@]}"; do
+        path="${ROLLBACK_PATHS[${index}]}"
+        if path_exists "${path}"; then
+            cp -a -- "${path}" "${TRANSACTION_BACKUP}/items/${index}"
+            printf '%s\n' present > "${TRANSACTION_BACKUP}/state/${index}"
+        else
+            printf '%s\n' missing > "${TRANSACTION_BACKUP}/state/${index}"
+        fi
+    done
+    TRANSACTION_STARTED=1
+}
+
+preflight_common_state() {
+    local path
+    for path in "${ETC_DIR}" "${APP_DIR}" "${STATE_DIR}" "${LOG_DIR}"; do
+        [[ ! -L "${path}" ]] || die "managed directory must not be a symlink: ${path}"
+    done
+    [[ ! -L "${MARKER}" ]] || die "installer marker must not be a symlink"
+    for path in \
+        "${ETC_DIR}/mode" "${ETC_DIR}/install.env" \
+        "${ETC_DIR}/location.json" "${ETC_DIR}/jitter.seed" \
+        "${ETC_DIR}/ca.crt" "${ETC_DIR}/ca.der" \
+        "${ETC_DIR}/leaf.crt" "${ETC_DIR}/leaf.key" \
+        "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig" \
+        "${ETC_DIR}/xray-location-routing.example.json" \
+        "${ETC_DIR}/node-uri.txt" \
+        "${APP_DIR}/interceptor.py" "${APP_DIR}/gsloc_rewrite.py" \
+        "${APP_DIR}/wifitile_rewrite.py" "${APP_DIR}/location_picker.py" \
+        "${APP_DIR}/cli.py" \
+        /etc/systemd/system/home-location-endpoint.service \
+        /etc/logrotate.d/home-location-endpoint; do
+        reject_symlink_if_present "${path}"
+    done
+    if [[ -f "${MARKER}" ]]; then
+        [[ -L /usr/local/sbin/hle \
+          && "$(readlink /usr/local/sbin/hle)" == "${APP_DIR}/cli.py" ]] \
+            || die "managed hle command is missing or points to an unexpected target"
+    fi
+    if [[ ! -f "${MARKER}" ]] && {
+        path_exists "${ETC_DIR}" ||
+        path_exists "${APP_DIR}" ||
+        path_exists /usr/local/sbin/hle ||
+        path_exists /etc/systemd/system/home-location-endpoint.service;
+    }; then
+        die "partial or unmanaged Home-Location-Endpoint files already exist; inspect them before installing"
+    fi
+    if [[ -f "${MARKER}" ]]; then
+        root_owned_not_group_world_writable "${ETC_DIR}" \
+            || die "managed config directory ownership or permissions are unsafe"
+        if [[ ! -f "${ETC_DIR}/install.env" ]] \
+            || ! root_owned_not_group_world_writable "${ETC_DIR}/install.env"; then
+            die "install.env must be a root-owned regular file without group/world write access"
+        fi
+        root_owned_not_group_world_writable "${MARKER}" \
+            || die "installer marker ownership or permissions are unsafe"
+    fi
+    if [[ -f "${MARKER}" && ! -f "${ETC_DIR}/mode" && ! -f "${ETC_DIR}/install.env" ]]; then
+        die "managed installation metadata is incomplete; refusing to guess its mode"
+    fi
+}
+
+acquire_install_lock() {
+    command -v flock >/dev/null 2>&1 || die "flock is required (install util-linux)"
+    exec 9>/run/home-location-endpoint.lock
+    flock -n 9 || die "another Home-Location-Endpoint operation is already running"
+}
+
 bootstrap_if_needed() {
     local script_dir archive_url temporary extracted
+    [[ "${BOOTSTRAP_VERSION}" =~ ^[A-Za-z0-9._-]+$ ]] \
+        || die "HLE_VERSION contains unsupported characters"
+    if [[ -n "${HLE_BOOTSTRAP_TEMP:-}" ]]; then
+        [[ -d "${HLE_BOOTSTRAP_TEMP}" \
+          && ! -L "${HLE_BOOTSTRAP_TEMP}" \
+          && -f "${HLE_BOOTSTRAP_TEMP}/.home-location-endpoint-bootstrap" \
+          && "$(stat -c %u "${HLE_BOOTSTRAP_TEMP}")" == "0" ]] \
+            || die "refusing an untrusted HLE_BOOTSTRAP_TEMP directory"
+        register_temp_dir "${HLE_BOOTSTRAP_TEMP}"
+        unset HLE_BOOTSTRAP_TEMP
+    fi
     script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
     if [[ -f "${script_dir}/src/home_location_endpoint/interceptor.py" ]]; then
         SOURCE_DIR="${script_dir}"
@@ -57,20 +264,28 @@ bootstrap_if_needed() {
     fi
 
     note "Downloading ${PROJECT} ${BOOTSTRAP_VERSION}"
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl tar
+    apt-get -o Acquire::Retries=3 update -qq
+    DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+        apt-get -o Acquire::Retries=3 install -y -qq ca-certificates curl tar util-linux
     temporary="$(mktemp -d)"
+    register_temp_dir "${temporary}"
+    : > "${temporary}/.home-location-endpoint-bootstrap"
     if [[ "${BOOTSTRAP_VERSION}" == "main" ]]; then
         archive_url="${REPOSITORY}/archive/refs/heads/main.tar.gz"
     else
         archive_url="${REPOSITORY}/archive/refs/tags/${BOOTSTRAP_VERSION}.tar.gz"
     fi
     curl --fail --show-error --location --proto '=https' --tlsv1.2 \
+        --connect-timeout 15 --max-time 180 --retry 3 --retry-all-errors \
         "${archive_url}" -o "${temporary}/source.tar.gz"
     tar -xzf "${temporary}/source.tar.gz" -C "${temporary}"
     extracted="$(find "${temporary}" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
     [[ -n "${extracted}" ]] || die "downloaded archive did not contain a source directory"
-    exec bash "${extracted}/install.sh" "$@"
+    [[ -f "${extracted}/install.sh" \
+      && -f "${extracted}/src/home_location_endpoint/interceptor.py" \
+      && -f "${extracted}/configs/reality-sni.txt" ]] \
+        || die "downloaded archive is missing required project files"
+    HLE_BOOTSTRAP_TEMP="${temporary}" exec bash "${extracted}/install.sh" "$@"
 }
 
 load_existing_settings() {
@@ -92,6 +307,7 @@ load_existing_settings() {
             *) die "invalid installation mode in install.env: ${mode_from_env}" ;;
         esac
         PORT="${HLE_PORT:-${PORT}}"
+        PREVIOUS_PORT="${HLE_PORT:-}"
         SERVER="${HLE_SERVER:-${SERVER}}"
     fi
     if [[ -n "${mode_from_file}" && -n "${mode_from_env}" \
@@ -142,18 +358,7 @@ parse_args() {
                 shift
                 ;;
             -h|--help)
-                cat <<'EOF'
-Usage: sudo bash install.sh [options]
-
-  --mode MODE              full or modifier-only (interactive when omitted)
-  --port PORT              VLESS + REALITY listening port (default: 443)
-  --server HOST_OR_IP      address written into the client URI (default: detected egress IP)
-  --reality-sni HOST       override the random validated REALITY SNI
-  --reality-target H:P     override target for an explicit SNI (default: SNI:443)
-  --rotate-ca              replace the scoped CA and leaf certificate
-
-The installer never changes SSH ports, SSH keys, passwords, or existing firewall policy.
-EOF
+                print_help
                 exit 0
                 ;;
             *)
@@ -211,17 +416,19 @@ check_os() {
         debian:12|debian:13|ubuntu:22.04|ubuntu:24.04) ;;
         *) die "supported systems: Debian 12/13 and Ubuntu 22.04/24.04; found ${ID}:${VERSION_ID}" ;;
     esac
-    case "$(dpkg --print-architecture)" in
-        amd64)
-            XRAY_ASSET="Xray-linux-64.zip"
-            XRAY_SHA256="${XRAY_AMD64_SHA256}"
-            ;;
-        arm64)
-            XRAY_ASSET="Xray-linux-arm64-v8a.zip"
-            XRAY_SHA256="${XRAY_ARM64_SHA256}"
-            ;;
-        *) die "supported CPU architectures: amd64 and arm64" ;;
-    esac
+    if [[ "${MODE}" == "full" ]]; then
+        case "$(dpkg --print-architecture)" in
+            amd64)
+                XRAY_ASSET="Xray-linux-64.zip"
+                XRAY_SHA256="${XRAY_AMD64_SHA256}"
+                ;;
+            arm64)
+                XRAY_ASSET="Xray-linux-arm64-v8a.zip"
+                XRAY_SHA256="${XRAY_ARM64_SHA256}"
+                ;;
+            *) die "full mode supports amd64 and arm64; modifier-only is architecture independent" ;;
+        esac
+    fi
 }
 
 check_port_available() {
@@ -233,15 +440,21 @@ check_port_available() {
             return
         fi
     fi
-    python3 - "${PORT}" <<'PY'
+    python3 - "${PORT}" "${LISTEN_ADDRESS}" <<'PY'
 import socket
 import sys
 
 port = int(sys.argv[1])
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+host = sys.argv[2]
+family = socket.AF_INET6 if ":" in host else socket.AF_INET
+sock = socket.socket(family, socket.SOCK_STREAM)
 try:
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("0.0.0.0", port))
+    if family == socket.AF_INET6:
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.bind((host, port, 0, 0))
+    else:
+        sock.bind((host, port))
 except OSError as exc:
     raise SystemExit("TCP port %d is unavailable: %s" % (port, exc))
 finally:
@@ -249,23 +462,69 @@ finally:
 PY
 }
 
+detect_listen_address() {
+    LISTEN_ADDRESS="0.0.0.0"
+    if [[ -s /proc/net/if_inet6 \
+          && "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || printf 0)" != "1" ]] \
+        && python3 - <<'PY'
+import socket
+
+sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+try:
+    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+    sock.bind(("::", 0, 0, 0))
+finally:
+    sock.close()
+PY
+    then
+        LISTEN_ADDRESS="::"
+        printf 'IPv6 is available; Xray will use an explicit IPv4/IPv6 dual-stack listener.\n'
+    fi
+}
+
 check_existing_installation() {
+    if [[ "${MODE}" == "full" && -L "${XRAY_CONFIG_DIR}" ]]; then
+        die "Xray config directory must not be a symlink: ${XRAY_CONFIG_DIR}"
+    fi
+    if [[ "${MODE}" == "full" ]]; then
+        reject_symlink_if_present "${XRAY_CONFIG_DIR}/config.json"
+        reject_symlink_if_present /usr/local/bin/xray
+        reject_symlink_if_present /etc/systemd/system/xray.service
+        reject_symlink_if_present /etc/sysctl.d/99-home-location-endpoint.conf
+    fi
     if [[ "${MODE}" == "full" && ! -f "${MARKER}" ]] && {
         [[ -f "${XRAY_CONFIG_DIR}/config.json" ]] ||
         [[ -f /etc/systemd/system/xray.service ]] ||
-        [[ -f /lib/systemd/system/xray.service ]];
+        [[ -f /lib/systemd/system/xray.service ]] ||
+        path_exists /usr/local/bin/xray;
     }; then
         die "an unmanaged Xray installation already exists; use a clean landing server"
     fi
 }
 
+check_resources() {
+    local available_kb minimum_kb memory_kb
+    available_kb="$(df -Pk / | awk 'NR==2 {print $4}')"
+    minimum_kb=51200
+    [[ "${MODE}" == "full" ]] && minimum_kb=204800
+    if [[ ! "${available_kb}" =~ ^[0-9]+$ || "${available_kb}" -lt "${minimum_kb}" ]]; then
+        die "insufficient free disk space; ${MODE} mode needs at least $((minimum_kb / 1024)) MiB"
+    fi
+    memory_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || true)"
+    if [[ "${memory_kb}" =~ ^[0-9]+$ && "${memory_kb}" -lt 393216 ]]; then
+        printf 'WARNING: less than 384 MiB RAM detected; concurrent proxy/location load may be unstable.\n' >&2
+    fi
+}
+
 install_packages() {
     note "Installing required packages"
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        ca-certificates curl logrotate openssl python3
+    apt-get -o Acquire::Retries=3 update -qq
+    DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+        apt-get -o Acquire::Retries=3 install -y -qq \
+        ca-certificates curl logrotate openssl python3 util-linux
     if [[ "${MODE}" == "full" ]]; then
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+        DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+            apt-get -o Acquire::Retries=3 install -y -qq \
             iproute2 kmod procps unzip uuid-runtime
     fi
 }
@@ -311,12 +570,29 @@ select_reality_target() {
     die "none of the randomized REALITY SNI candidates passed live TLS validation"
 }
 
+generate_fallback_limits() {
+    read -r FALLBACK_UPLOAD_AFTER FALLBACK_UPLOAD_RATE FALLBACK_UPLOAD_BURST \
+        FALLBACK_DOWNLOAD_AFTER FALLBACK_DOWNLOAD_RATE FALLBACK_DOWNLOAD_BURST < <(
+        python3 -c 'import secrets
+def pick(low, high): return low + secrets.randbelow(high - low + 1)
+values = []
+for _ in range(2):
+    after = pick(4 * 1024 * 1024, 12 * 1024 * 1024)
+    rate = pick(512 * 1024, 1024 * 1024)
+    burst = pick(2 * 1024 * 1024, 6 * 1024 * 1024)
+    values.extend((after, rate, max(rate, burst)))
+print(*values)'
+    )
+}
+
 install_xray() {
     local temporary archive
     note "Installing verified Xray ${XRAY_VERSION}"
     temporary="$(mktemp -d)"
+    register_temp_dir "${temporary}"
     archive="${temporary}/${XRAY_ASSET}"
     curl --fail --show-error --location --proto '=https' --tlsv1.2 \
+        --connect-timeout 15 --max-time 180 --retry 3 --retry-all-errors \
         "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ASSET}" \
         -o "${archive}"
     printf '%s  %s\n' "${XRAY_SHA256}" "${archive}" | sha256sum --check --status \
@@ -327,7 +603,7 @@ install_xray() {
 }
 
 install_baseline() {
-    note "Applying a conservative TCP baseline"
+    note "Staging a conservative TCP baseline"
     install -o root -g root -m 0644 \
         "${SOURCE_DIR}/configs/99-home-location-endpoint.conf" \
         /etc/sysctl.d/99-home-location-endpoint.conf
@@ -338,24 +614,46 @@ install_baseline() {
     else
         printf 'WARNING: this kernel does not expose BBR; the remaining settings were applied.\n' >&2
     fi
-    sysctl --load=/etc/sysctl.d/99-home-location-endpoint.conf >/dev/null
+}
+
+apply_baseline() {
+    note "Applying the committed TCP baseline"
+    if ! sysctl --load=/etc/sysctl.d/99-home-location-endpoint.conf >/dev/null; then
+        printf 'WARNING: this host rejected part of the optional TCP baseline; installation will continue.\n' >&2
+    fi
+}
+
+ensure_system_account() {
+    local user="$1" group="$2" gid uid primary_group shell
+    getent group "${group}" >/dev/null || groupadd --system "${group}"
+    gid="$(getent group "${group}" | cut -d: -f3)"
+    [[ "${gid}" =~ ^[0-9]+$ && "${gid}" -lt 1000 ]] \
+        || die "existing group ${group} is not a compatible system group"
+    if id -u "${user}" >/dev/null 2>&1; then
+        uid="$(id -u "${user}")"
+        primary_group="$(id -gn "${user}")"
+        shell="$(getent passwd "${user}" | cut -d: -f7)"
+        [[ "${uid}" -lt 1000 && "${primary_group}" == "${group}" ]] \
+            || die "existing account ${user} is not a compatible system account"
+        case "${shell}" in
+            /usr/sbin/nologin|/sbin/nologin|/bin/false) ;;
+            *) die "existing account ${user} has an interactive shell" ;;
+        esac
+        return
+    fi
+    useradd --system --gid "${group}" --home-dir /nonexistent \
+        --shell /usr/sbin/nologin "${user}"
 }
 
 create_accounts_and_directories() {
-    getent group home-location >/dev/null || groupadd --system home-location
-    id -u home-location >/dev/null 2>&1 || useradd \
-        --system --gid home-location --home-dir /nonexistent \
-        --shell /usr/sbin/nologin home-location
+    ensure_system_account home-location home-location
 
     install -d -o root -g home-location -m 0750 "${ETC_DIR}"
     install -d -o root -g root -m 0755 "${APP_DIR}"
     install -d -o root -g home-location -m 0750 "${STATE_DIR}"
     install -d -o home-location -g home-location -m 0750 "${LOG_DIR}"
     if [[ "${MODE}" == "full" ]]; then
-        getent group xray >/dev/null || groupadd --system xray
-        id -u xray >/dev/null 2>&1 || useradd \
-            --system --gid xray --home-dir /nonexistent \
-            --shell /usr/sbin/nologin xray
+        ensure_system_account xray xray
         install -d -o root -g xray -m 0750 "${XRAY_CONFIG_DIR}"
     fi
 
@@ -378,44 +676,67 @@ create_accounts_and_directories() {
 }
 
 select_random_location() {
+    local output_gid
     note "Detecting the egress city and selecting a fresh random point"
-    python3 "${APP_DIR}/location_picker.py" \
+    output_gid="$(id -g home-location)"
+    if ! python3 "${APP_DIR}/location_picker.py" \
         --output "${ETC_DIR}/location.json" \
-        --cache "${STATE_DIR}/city-boundary.json"
-    chown root:home-location "${ETC_DIR}/location.json"
-    chmod 0640 "${ETC_DIR}/location.json"
+        --cache "${STATE_DIR}/city-boundary.json" \
+        --output-mode 0640 --output-uid 0 --output-gid "${output_gid}"; then
+        if [[ -f "${MARKER}" ]] && PYTHONPATH="${SOURCE_DIR}/src" \
+            HLE_ETC="${ETC_DIR}" python3 -c \
+            'from home_location_endpoint.cli import location_is_valid; raise SystemExit(0 if location_is_valid() else 1)'; then
+            printf 'WARNING: location providers are unavailable; preserving the validated existing point.\n' >&2
+        else
+            die "could not select a location and no valid previous location is available"
+        fi
+    fi
     if [[ -z "${SERVER}" ]]; then
         SERVER="$(python3 -c 'import json; print(json.load(open("/etc/home-location-endpoint/location.json"))["source"]["ip"])')"
     fi
 }
 
 generate_certificates() {
-    local extension_file
-    if [[ "${ROTATE_CA}" -eq 1 ]]; then
-        rm -f "${ETC_DIR}/ca.crt" "${ETC_DIR}/ca.der" \
-            "${ETC_DIR}/leaf.crt" "${ETC_DIR}/leaf.key"
-    fi
-    if [[ -f "${ETC_DIR}/ca.crt" && -f "${ETC_DIR}/ca.der" && \
-          -f "${ETC_DIR}/leaf.crt" && -f "${ETC_DIR}/leaf.key" ]]; then
+    local extension_file stage present_count=0 path
+    local -a certificate_paths=(
+        "${ETC_DIR}/ca.crt"
+        "${ETC_DIR}/ca.der"
+        "${ETC_DIR}/leaf.crt"
+        "${ETC_DIR}/leaf.key"
+    )
+    for path in "${certificate_paths[@]}"; do
+        [[ -f "${path}" ]] && present_count=$((present_count + 1))
+    done
+    if [[ "${ROTATE_CA}" -eq 0 && "${present_count}" -eq 4 ]]; then
+        validate_certificate_set \
+            "${ETC_DIR}/ca.crt" "${ETC_DIR}/ca.der" \
+            "${ETC_DIR}/leaf.crt" "${ETC_DIR}/leaf.key" \
+            || die "existing certificates are invalid or expire within 30 days; rerun with --rotate-ca and reinstall the iOS profile"
         note "Reusing the existing scoped CA and leaf certificate"
         return
     fi
+    if [[ "${ROTATE_CA}" -eq 0 && "${present_count}" -ne 0 ]]; then
+        die "certificate set is incomplete; rerun with --rotate-ca after reviewing the existing files"
+    fi
 
     note "Generating a scoped private CA and Apple-location leaf certificate"
+    stage="$(mktemp -d)"
+    register_temp_dir "${stage}"
     umask 0077
     openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
-        -out "${ETC_DIR}/ca.key"
+        -out "${stage}/ca.key"
     openssl req -x509 -new -sha256 -days 3650 \
-        -key "${ETC_DIR}/ca.key" -out "${ETC_DIR}/ca.crt" \
+        -key "${stage}/ca.key" -out "${stage}/ca.crt" \
         -subj "/CN=Home Location Endpoint Root CA" \
         -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
         -addext "keyUsage=critical,keyCertSign,cRLSign" \
         -addext "subjectKeyIdentifier=hash"
     openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
-        -out "${ETC_DIR}/leaf.key"
-    openssl req -new -key "${ETC_DIR}/leaf.key" \
-        -out "${ETC_DIR}/leaf.csr" -subj "/CN=gs-loc.apple.com"
+        -out "${stage}/leaf.key"
+    openssl req -new -key "${stage}/leaf.key" \
+        -out "${stage}/leaf.csr" -subj "/CN=gs-loc.apple.com"
     extension_file="$(mktemp)"
+    register_temp_dir "${extension_file}"
     cat > "${extension_file}" <<'EOF'
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature
@@ -425,26 +746,74 @@ authorityKeyIdentifier=keyid,issuer
 subjectAltName=DNS:gs-loc.apple.com,DNS:gs-loc-cn.apple.com,DNS:*.ls.apple.com
 EOF
     openssl x509 -req -sha256 -days 397 \
-        -in "${ETC_DIR}/leaf.csr" \
-        -CA "${ETC_DIR}/ca.crt" -CAkey "${ETC_DIR}/ca.key" -CAcreateserial \
-        -extfile "${extension_file}" -out "${ETC_DIR}/leaf.crt"
-    openssl x509 -in "${ETC_DIR}/ca.crt" -outform DER -out "${ETC_DIR}/ca.der"
-    rm -f "${extension_file}" "${ETC_DIR}/leaf.csr" \
-        "${ETC_DIR}/ca.srl" "${ETC_DIR}/ca.key"
-    chown root:home-location "${ETC_DIR}/leaf.key" "${ETC_DIR}/leaf.crt"
-    chmod 0640 "${ETC_DIR}/leaf.key" "${ETC_DIR}/leaf.crt"
-    chmod 0644 "${ETC_DIR}/ca.crt" "${ETC_DIR}/ca.der"
+        -in "${stage}/leaf.csr" \
+        -CA "${stage}/ca.crt" -CAkey "${stage}/ca.key" -CAcreateserial \
+        -extfile "${extension_file}" -out "${stage}/leaf.crt"
+    openssl x509 -in "${stage}/ca.crt" -outform DER -out "${stage}/ca.der"
+    rm -f "${extension_file}" "${stage}/leaf.csr" "${stage}/ca.srl"
+    validate_certificate_set \
+        "${stage}/ca.crt" "${stage}/ca.der" \
+        "${stage}/leaf.crt" "${stage}/leaf.key" \
+        || die "newly generated certificate set failed validation"
+    install -o root -g root -m 0644 "${stage}/ca.crt" "${ETC_DIR}/ca.crt"
+    install -o root -g root -m 0644 "${stage}/ca.der" "${ETC_DIR}/ca.der"
+    install -o root -g home-location -m 0640 "${stage}/leaf.crt" "${ETC_DIR}/leaf.crt"
+    install -o root -g home-location -m 0640 "${stage}/leaf.key" "${ETC_DIR}/leaf.key"
+    rm -rf -- "${stage}"
+}
+
+validate_certificate_set() {
+    local ca_crt="$1" ca_der="$2" leaf_crt="$3" leaf_key="$4" stage
+    stage="$(mktemp -d)"
+    register_temp_dir "${stage}"
+    openssl verify -CAfile "${ca_crt}" "${leaf_crt}" >/dev/null 2>&1 || return 1
+    openssl x509 -checkend 2592000 -noout -in "${ca_crt}" >/dev/null 2>&1 || return 1
+    openssl x509 -checkend 2592000 -noout -in "${leaf_crt}" >/dev/null 2>&1 || return 1
+    openssl x509 -checkhost gs-loc.apple.com -noout -in "${leaf_crt}" >/dev/null 2>&1 \
+        || return 1
+    openssl x509 -checkhost gs-loc-cn.apple.com -noout -in "${leaf_crt}" >/dev/null 2>&1 \
+        || return 1
+    openssl x509 -checkhost gspe85-ssl.ls.apple.com -noout -in "${leaf_crt}" >/dev/null 2>&1 \
+        || return 1
+    openssl x509 -checkhost gspe85-9-cn-ssl.ls.apple.com -noout -in "${leaf_crt}" >/dev/null 2>&1 \
+        || return 1
+    openssl x509 -in "${ca_crt}" -outform DER -out "${stage}/ca.der" \
+        >/dev/null 2>&1 || return 1
+    cmp -s "${stage}/ca.der" "${ca_der}" || return 1
+    openssl pkey -in "${leaf_key}" -pubout -outform DER -out "${stage}/key.pub" \
+        >/dev/null 2>&1 || return 1
+    openssl x509 -in "${leaf_crt}" -pubkey -noout 2>/dev/null \
+        | openssl pkey -pubin -outform DER -out "${stage}/cert.pub" \
+            >/dev/null 2>&1 || return 1
+    cmp -s "${stage}/key.pub" "${stage}/cert.pub"
+}
+
+render_ca_profile() {
+    note "Rendering the deterministic iOS CA profile"
+    PYTHONPATH="${SOURCE_DIR}/src" python3 -m home_location_endpoint.profile \
+        --ca-der "${ETC_DIR}/ca.der" \
+        --output "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig"
+    chown root:root "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig"
+    chmod 0644 "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig"
 }
 
 load_or_create_credentials() {
-    local key_output
+    local derived_output derived_public key_output
     if [[ -f "${ETC_DIR}/install.env" ]]; then
         # shellcheck disable=SC1091
         source "${ETC_DIR}/install.env"
+        [[ -n "${HLE_UUID:-}" && -n "${HLE_PRIVATE_KEY:-}" \
+          && -n "${HLE_PUBLIC_KEY:-}" && -n "${HLE_SHORT_ID:-}" ]] \
+            || die "existing full-mode credentials are incomplete"
         CLIENT_UUID="${HLE_UUID}"
         PRIVATE_KEY="${HLE_PRIVATE_KEY}"
         PUBLIC_KEY="${HLE_PUBLIC_KEY}"
         SHORT_ID="${HLE_SHORT_ID}"
+        derived_output="$(/usr/local/bin/xray x25519 -i "${PRIVATE_KEY}")"
+        derived_public="$(printf '%s\n' "${derived_output}" | awk -F': *' \
+            '/^(Password \(PublicKey\)|Password|PublicKey|Public key):/{print $2; exit}')"
+        [[ -n "${derived_public}" && "${derived_public}" == "${PUBLIC_KEY}" ]] \
+            || die "existing REALITY public/private key pair does not match"
         return
     fi
     CLIENT_UUID="$(/usr/local/bin/xray uuid)"
@@ -460,26 +829,24 @@ render_and_validate() {
     local stage
     note "Rendering and validating the endpoint configuration"
     stage="$(mktemp -d)"
+    register_temp_dir "${stage}"
     python3 "${SOURCE_DIR}/src/home_location_endpoint/render.py" \
         --config "${stage}/config.json" \
         --uri "${stage}/node-uri.txt" \
-        --profile "${stage}/Home-Location-Endpoint-CA.mobileconfig" \
-        --ca-der "${ETC_DIR}/ca.der" \
         --server "${SERVER}" --port "${PORT}" --uuid "${CLIENT_UUID}" \
         --reality-sni "${REALITY_SNI}" --reality-target "${REALITY_TARGET}" \
         --private-key "${PRIVATE_KEY}" --public-key "${PUBLIC_KEY}" \
-        --short-id "${SHORT_ID}"
+        --short-id "${SHORT_ID}" \
+        --listen "${LISTEN_ADDRESS}" \
+        --fallback-upload-after "${FALLBACK_UPLOAD_AFTER}" \
+        --fallback-upload-rate "${FALLBACK_UPLOAD_RATE}" \
+        --fallback-upload-burst "${FALLBACK_UPLOAD_BURST}" \
+        --fallback-download-after "${FALLBACK_DOWNLOAD_AFTER}" \
+        --fallback-download-rate "${FALLBACK_DOWNLOAD_RATE}" \
+        --fallback-download-burst "${FALLBACK_DOWNLOAD_BURST}"
     /usr/local/bin/xray run -test -config "${stage}/config.json"
-    if [[ -f "${XRAY_CONFIG_DIR}/config.json" ]]; then
-        XRAY_BACKUP="$(mktemp /run/home-location-endpoint-xray.XXXXXX)"
-        cp --preserve=mode,ownership "${XRAY_CONFIG_DIR}/config.json" "${XRAY_BACKUP}"
-    fi
     install -o root -g xray -m 0640 "${stage}/config.json" "${XRAY_CONFIG_DIR}/config.json"
     install -o root -g root -m 0600 "${stage}/node-uri.txt" "${ETC_DIR}/node-uri.txt"
-    install -o root -g root -m 0644 \
-        "${stage}/Home-Location-Endpoint-CA.mobileconfig" \
-        "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig"
-    rm -rf "${stage}"
 
     umask 0077
     {
@@ -492,6 +859,13 @@ render_and_validate() {
         printf 'HLE_PRIVATE_KEY=%q\n' "${PRIVATE_KEY}"
         printf 'HLE_PUBLIC_KEY=%q\n' "${PUBLIC_KEY}"
         printf 'HLE_SHORT_ID=%q\n' "${SHORT_ID}"
+        printf 'HLE_LISTEN_ADDRESS=%q\n' "${LISTEN_ADDRESS}"
+        printf 'HLE_FALLBACK_UPLOAD_AFTER=%q\n' "${FALLBACK_UPLOAD_AFTER}"
+        printf 'HLE_FALLBACK_UPLOAD_RATE=%q\n' "${FALLBACK_UPLOAD_RATE}"
+        printf 'HLE_FALLBACK_UPLOAD_BURST=%q\n' "${FALLBACK_UPLOAD_BURST}"
+        printf 'HLE_FALLBACK_DOWNLOAD_AFTER=%q\n' "${FALLBACK_DOWNLOAD_AFTER}"
+        printf 'HLE_FALLBACK_DOWNLOAD_RATE=%q\n' "${FALLBACK_DOWNLOAD_RATE}"
+        printf 'HLE_FALLBACK_DOWNLOAD_BURST=%q\n' "${FALLBACK_DOWNLOAD_BURST}"
     } > "${ETC_DIR}/install.env"
     chmod 0600 "${ETC_DIR}/install.env"
     printf 'mode=%s\nxray=%s\n' "${MODE}" "${XRAY_VERSION}" > "${MARKER}"
@@ -510,6 +884,28 @@ write_common_mode_state() {
         chmod 0600 "${ETC_DIR}/install.env"
         printf 'mode=%s\n' "${MODE}" > "${MARKER}"
         chmod 0600 "${MARKER}"
+    fi
+}
+
+normalize_managed_permissions() {
+    chown root:home-location "${ETC_DIR}"
+    chmod 0750 "${ETC_DIR}"
+    chown root:root \
+        "${ETC_DIR}/mode" "${ETC_DIR}/install.env" "${MARKER}" \
+        "${ETC_DIR}/ca.crt" "${ETC_DIR}/ca.der" \
+        "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig"
+    chmod 0644 "${ETC_DIR}/mode" "${ETC_DIR}/ca.crt" "${ETC_DIR}/ca.der" \
+        "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig"
+    chmod 0600 "${ETC_DIR}/install.env" "${MARKER}"
+    chown root:home-location \
+        "${ETC_DIR}/location.json" "${ETC_DIR}/jitter.seed" \
+        "${ETC_DIR}/leaf.crt" "${ETC_DIR}/leaf.key"
+    chmod 0640 \
+        "${ETC_DIR}/location.json" "${ETC_DIR}/jitter.seed" \
+        "${ETC_DIR}/leaf.crt" "${ETC_DIR}/leaf.key"
+    if [[ "${MODE}" == "full" ]]; then
+        chown root:root "${ETC_DIR}/node-uri.txt"
+        chmod 0600 "${ETC_DIR}/node-uri.txt"
     fi
 }
 
@@ -534,22 +930,20 @@ install_services() {
         return
     fi
     systemctl enable xray.service >/dev/null
-    if ! systemctl restart xray.service; then
-        if [[ -n "${XRAY_BACKUP}" && -f "${XRAY_BACKUP}" ]]; then
-            install -o root -g xray -m 0640 "${XRAY_BACKUP}" "${XRAY_CONFIG_DIR}/config.json"
-            systemctl restart xray.service || true
-        fi
-        die "Xray failed to start; the previous Xray config was restored when available"
-    fi
-    if [[ -n "${XRAY_BACKUP}" && -f "${XRAY_BACKUP}" ]]; then
-        rm -f "${XRAY_BACKUP}"
-    fi
+    systemctl restart xray.service \
+        || die "Xray failed to start; the installation transaction will be rolled back"
 }
 
 open_active_firewall() {
     if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
         note "Allowing TCP ${PORT} in the already-active UFW policy"
-        ufw allow "${PORT}/tcp" comment "Home Location Endpoint" >/dev/null
+        if ! ufw allow "${PORT}/tcp" comment "Home Location Endpoint" >/dev/null; then
+            printf 'WARNING: UFW is active but its proxy-port rule could not be added.\n' >&2
+        fi
+        if [[ -n "${PREVIOUS_PORT}" && "${PREVIOUS_PORT}" != "${PORT}" ]]; then
+            printf 'WARNING: the proxy port changed from %s to %s; review and remove the old UFW rule if it was project-created.\n' \
+                "${PREVIOUS_PORT}" "${PORT}" >&2
+        fi
     else
         printf 'Firewall note: UFW was not active, so the installer did not change firewall state.\n'
     fi
@@ -597,7 +991,7 @@ Xray integration example: ${ETC_DIR}/xray-location-routing.example.json
 
 Next:
   1. Copy the profile to the iPhone, install it, then enable full trust for this CA.
-  2. Merge the example outbound/routing rule into your own proxy configuration.
+  2. Merge the example outbounds/routing rules into your own proxy configuration.
   3. Enable TLS/HTTP sniffing with routeOnly on the inbound that carries phone traffic.
   4. Run 'hle verify', then test that only the documented Apple hosts reach loopback:10451.
 
@@ -606,15 +1000,21 @@ EOF
 }
 
 main() {
+    show_help_if_requested "$@"
     require_root
     bootstrap_if_needed "$@"
-    check_os
+    acquire_install_lock
+    preflight_common_state
     load_existing_settings
     parse_args "$@"
     select_install_mode
+    check_os
     check_existing_installation
+    check_resources
     install_packages
+    begin_transaction
     if [[ "${MODE}" == "full" ]]; then
+        detect_listen_address
         check_port_available
         install_xray
         install_baseline
@@ -622,17 +1022,22 @@ main() {
     create_accounts_and_directories
     select_random_location
     generate_certificates
+    render_ca_profile
     if [[ "${MODE}" == "full" ]]; then
         select_reality_target
+        generate_fallback_limits
         load_or_create_credentials
         render_and_validate
     fi
     write_common_mode_state
+    normalize_managed_permissions
     install_services
+    /usr/local/sbin/hle verify
+    TRANSACTION_COMMITTED=1
     if [[ "${MODE}" == "full" ]]; then
+        apply_baseline
         open_active_firewall
     fi
-    /usr/local/sbin/hle verify
     show_result
 }
 

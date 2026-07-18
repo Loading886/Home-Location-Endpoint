@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import socket
 import ssl
 
@@ -18,6 +19,9 @@ def probe_reality_target(sni: str, target: str, *, timeout: float = 10.0) -> dic
     context.minimum_version = ssl.TLSVersion.TLSv1_3
     context.set_alpn_protocols(["h2"])
     with socket.create_connection((host, port), timeout=timeout) as raw_socket:
+        peer_address = ipaddress.ip_address(raw_socket.getpeername()[0])
+        if not peer_address.is_global:
+            raise ValueError("REALITY target resolved to a non-public address")
         with context.wrap_socket(raw_socket, server_hostname=sni) as tls_socket:
             version = tls_socket.version()
             alpn = tls_socket.selected_alpn_protocol()
@@ -25,7 +29,14 @@ def probe_reality_target(sni: str, target: str, *, timeout: float = 10.0) -> dic
         raise ValueError("target did not negotiate TLS 1.3")
     if alpn != "h2":
         raise ValueError("target did not negotiate HTTP/2 through ALPN")
-    return {"sni": sni, "host": host, "port": port, "tls": version, "alpn": alpn}
+    return {
+        "sni": sni,
+        "host": host,
+        "port": port,
+        "peer": str(peer_address),
+        "tls": version,
+        "alpn": alpn,
+    }
 
 
 def main() -> None:

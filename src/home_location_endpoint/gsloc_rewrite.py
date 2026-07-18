@@ -55,6 +55,7 @@ WIRE_LEN = 2
 WIRE_I32 = 5
 
 _MASK64 = (1 << 64) - 1
+MAX_PROTOBUF_FIELDS = 100_000
 
 
 def read_varint(buf, pos):
@@ -122,6 +123,8 @@ def parse_fields(buf):
     out = []
     n = len(buf)
     while pos < n:
+        if len(out) >= MAX_PROTOBUF_FIELDS:
+            raise ValueError("protobuf message contains too many fields")
         start = pos
         key, pos = read_varint(buf, pos)
         field_no = key >> 3
@@ -628,11 +631,16 @@ def resolve_target(presets, key=None):
     if key is None:
         key = presets["active"]
     entry = presets["presets"][key]
-    lat = float(entry["lat"])
-    lon = float(entry["lon"])
+    lat = _finite_number(entry["lat"], "latitude", -90.0, 90.0)
+    lon = _finite_number(entry["lon"], "longitude", -180.0, 180.0)
     if entry.get("datum", "wgs84").lower() != "wgs84":
         raise ValueError("only WGS84 targets are supported")
-    accuracy = entry.get("accuracy_m", presets.get("default_accuracy_m", 25))
+    accuracy = _finite_number(
+        entry.get("accuracy_m", presets.get("default_accuracy_m", 25)),
+        "accuracy_m",
+        0.0,
+        100_000.0,
+    )
     return lat, lon, accuracy
 
 

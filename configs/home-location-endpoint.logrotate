@@ -1,6 +1,7 @@
 /var/log/home-location-endpoint/*.log {
-    weekly
-    rotate 8
+    daily
+    rotate 14
+    maxsize 16M
     compress
     delaycompress
     missingok

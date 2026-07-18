@@ -23,11 +23,17 @@ class _FakeTlsSocket:
 
 
 class _FakeRawSocket:
+    def __init__(self, peer="8.8.8.8"):
+        self.peer = peer
+
     def __enter__(self):
         return self
 
     def __exit__(self, *_args):
         return False
+
+    def getpeername(self):
+        return self.peer, 443
 
 
 class _FakeContext:
@@ -71,6 +77,17 @@ class RealityProbeTests(unittest.TestCase):
         create_connection.return_value = _FakeRawSocket()
 
         with self.assertRaisesRegex(ValueError, "HTTP/2"):
+            reality_probe.probe_reality_target(
+                "www.example.com", "origin.example.com:443"
+            )
+
+    @mock.patch("home_location_endpoint.reality_probe.socket.create_connection")
+    @mock.patch("home_location_endpoint.reality_probe.ssl.create_default_context")
+    def test_probe_rejects_private_target(self, create_context, create_connection):
+        create_context.return_value = _FakeContext(_FakeTlsSocket())
+        create_connection.return_value = _FakeRawSocket(peer="127.0.0.1")
+
+        with self.assertRaisesRegex(ValueError, "non-public"):
             reality_probe.probe_reality_target(
                 "www.example.com", "origin.example.com:443"
             )

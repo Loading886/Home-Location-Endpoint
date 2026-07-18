@@ -17,10 +17,26 @@
           }
         ]
       }
+    },
+    {
+      "tag": "block-location-quic",
+      "protocol": "blackhole",
+      "settings": {}
     }
   ],
   "routing": {
     "rules": [
+      {
+        "type": "field",
+        "network": "udp",
+        "port": "443",
+        "domain": [
+          "full:gs-loc.apple.com",
+          "full:gs-loc-cn.apple.com",
+          "regexp:^gspe85(-[0-9]+)?(-cn)?-ssl\\.ls\\.apple\\.com$"
+        ],
+        "outboundTag": "block-location-quic"
+      },
       {
         "type": "field",
         "network": "tcp",

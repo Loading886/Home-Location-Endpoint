@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import ipaddress
 import json
 import os
@@ -80,7 +82,14 @@ def validate_host(value: str, *, allow_ip: bool) -> str:
 
 def validate_key(value: str, name: str) -> str:
     value = value.strip()
-    if not KEY_RE.fullmatch(value):
+    if not KEY_RE.fullmatch(value) or len(value) != 43:
+        raise ValueError("invalid %s" % name)
+    try:
+        decoded = base64.urlsafe_b64decode(value + "=")
+    except (ValueError, TypeError) as exc:
+        raise ValueError("invalid %s" % name) from exc
+    canonical = base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=")
+    if len(decoded) != 32 or canonical != value:
         raise ValueError("invalid %s" % name)
     return value
 
@@ -90,6 +99,28 @@ def validate_short_id(value: str) -> str:
     if not SHORT_ID_RE.fullmatch(value) or len(value) % 2:
         raise ValueError("short ID must contain 0-16 lowercase hex characters, even length")
     return value
+
+
+def validate_listen_host(value: str) -> str:
+    address = ipaddress.ip_address(value.strip())
+    if not address.is_unspecified:
+        raise ValueError("listen address must be 0.0.0.0 or ::")
+    return str(address)
+
+
+def validate_fallback_limit(value: dict | None) -> dict | None:
+    if value is None:
+        return None
+    if set(value) != {"afterBytes", "bytesPerSec", "burstBytesPerSec"}:
+        raise ValueError("fallback limit has unexpected fields")
+    normalized = {key: int(item) for key, item in value.items()}
+    if not 1 <= normalized["afterBytes"] <= 1024 * 1024 * 1024:
+        raise ValueError("fallback afterBytes is outside the safe range")
+    if not 1 <= normalized["bytesPerSec"] <= 128 * 1024 * 1024:
+        raise ValueError("fallback bytesPerSec is outside the safe range")
+    if not normalized["bytesPerSec"] <= normalized["burstBytesPerSec"] <= 256 * 1024 * 1024:
+        raise ValueError("fallback burstBytesPerSec is outside the safe range")
+    return normalized
 
 
 def split_target(target: str) -> tuple[str, int]:
@@ -115,6 +146,9 @@ def build_xray_config(
     reality_target: str,
     private_key: str,
     short_id: str,
+    listen_host: str = "0.0.0.0",
+    fallback_upload: dict | None = None,
+    fallback_download: dict | None = None,
 ) -> dict:
     port = validate_port(port)
     client_uuid = validate_uuid(client_uuid)
@@ -122,18 +156,42 @@ def build_xray_config(
     target_host, target_port = split_target(reality_target)
     private_key = validate_key(private_key, "REALITY private key")
     short_id = validate_short_id(short_id)
+    listen_host = validate_listen_host(listen_host)
+    fallback_upload = validate_fallback_limit(fallback_upload)
+    fallback_download = validate_fallback_limit(fallback_download)
     target_display = (
         "[%s]:%d" % (target_host, target_port)
         if ":" in target_host
         else "%s:%d" % (target_host, target_port)
     )
 
+    reality_settings = {
+        "show": False,
+        "target": target_display,
+        "xver": 0,
+        "serverNames": [reality_sni],
+        "privateKey": private_key,
+        "shortIds": [short_id],
+    }
+    if fallback_upload is not None:
+        reality_settings["limitFallbackUpload"] = fallback_upload
+    if fallback_download is not None:
+        reality_settings["limitFallbackDownload"] = fallback_download
+
+    stream_settings = {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": reality_settings,
+    }
+    if listen_host == "::":
+        stream_settings["sockopt"] = {"v6only": False}
+
     return {
         "log": {"loglevel": "warning"},
         "inbounds": [
             {
                 "tag": "vless-reality-in",
-                "listen": "0.0.0.0",
+                "listen": listen_host,
                 "port": port,
                 "protocol": "vless",
                 "settings": {
@@ -151,18 +209,7 @@ def build_xray_config(
                     "destOverride": ["http", "tls", "quic"],
                     "routeOnly": True,
                 },
-                "streamSettings": {
-                    "network": "raw",
-                    "security": "reality",
-                    "realitySettings": {
-                        "show": False,
-                        "target": target_display,
-                        "xver": 0,
-                        "serverNames": [reality_sni],
-                        "privateKey": private_key,
-                        "shortIds": [short_id],
-                    },
-                },
+                "streamSettings": stream_settings,
             }
         ],
         "outbounds": [
@@ -189,10 +236,23 @@ def build_xray_config(
                     ],
                 },
             },
+            {
+                "tag": "block-location-quic",
+                "protocol": "blackhole",
+                "settings": {},
+            },
         ],
         "routing": {
             "domainStrategy": "AsIs",
             "rules": [
+                {
+                    "type": "field",
+                    "inboundTag": ["vless-reality-in"],
+                    "network": "udp",
+                    "port": "443",
+                    "domain": list(LOCATION_DOMAINS),
+                    "outboundTag": "block-location-quic",
+                },
                 {
                     "type": "field",
                     "inboundTag": ["vless-reality-in"],
@@ -244,8 +304,19 @@ def build_vless_uri(
 def build_ca_profile(ca_der: bytes) -> bytes:
     if not ca_der:
         raise ValueError("CA certificate is empty")
-    root_id = str(uuid_module.uuid4()).upper()
-    profile_id = str(uuid_module.uuid4()).upper()
+    fingerprint = hashlib.sha256(ca_der).hexdigest()
+    root_id = str(
+        uuid_module.uuid5(
+            uuid_module.NAMESPACE_URL,
+            "https://github.com/Loading886/Home-Location-Endpoint/ca/" + fingerprint,
+        )
+    ).upper()
+    profile_id = str(
+        uuid_module.uuid5(
+            uuid_module.NAMESPACE_URL,
+            "https://github.com/Loading886/Home-Location-Endpoint/profile/" + fingerprint,
+        )
+    ).upper()
     payload = {
         "PayloadContent": [
             {
@@ -277,8 +348,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--uri", type=Path, required=True)
-    parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--ca-der", type=Path, required=True)
+    parser.add_argument("--profile", type=Path)
+    parser.add_argument("--ca-der", type=Path)
     parser.add_argument("--server", required=True)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--uuid", required=True)
@@ -287,11 +358,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--private-key", required=True)
     parser.add_argument("--public-key", required=True)
     parser.add_argument("--short-id", required=True)
+    parser.add_argument("--listen", default="0.0.0.0")
+    parser.add_argument("--fallback-upload-after", type=int)
+    parser.add_argument("--fallback-upload-rate", type=int)
+    parser.add_argument("--fallback-upload-burst", type=int)
+    parser.add_argument("--fallback-download-after", type=int)
+    parser.add_argument("--fallback-download-rate", type=int)
+    parser.add_argument("--fallback-download-burst", type=int)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if bool(args.profile) != bool(args.ca_der):
+        raise SystemExit("--profile and --ca-der must be supplied together")
+    upload_values = (
+        args.fallback_upload_after,
+        args.fallback_upload_rate,
+        args.fallback_upload_burst,
+    )
+    download_values = (
+        args.fallback_download_after,
+        args.fallback_download_rate,
+        args.fallback_download_burst,
+    )
+    if any(value is not None for value in upload_values + download_values) and not all(
+        value is not None for value in upload_values + download_values
+    ):
+        raise SystemExit("all fallback rate-limit arguments must be supplied together")
+    fallback_upload = None
+    fallback_download = None
+    if all(value is not None for value in upload_values):
+        fallback_upload = dict(zip(
+            ("afterBytes", "bytesPerSec", "burstBytesPerSec"), upload_values
+        ))
+        fallback_download = dict(zip(
+            ("afterBytes", "bytesPerSec", "burstBytesPerSec"), download_values
+        ))
     config = build_xray_config(
         port=args.port,
         client_uuid=args.uuid,
@@ -299,6 +402,9 @@ def main() -> None:
         reality_target=args.reality_target,
         private_key=args.private_key,
         short_id=args.short_id,
+        listen_host=args.listen,
+        fallback_upload=fallback_upload,
+        fallback_download=fallback_download,
     )
     uri = build_vless_uri(
         server=args.server,
@@ -314,8 +420,11 @@ def main() -> None:
         0o640,
     )
     atomic_write(args.uri, (uri + "\n").encode("utf-8"), 0o600)
-    atomic_write(args.profile, build_ca_profile(args.ca_der.read_bytes()), 0o644)
-    print("rendered Xray config, node URI, and iOS CA profile")
+    if args.profile:
+        atomic_write(args.profile, build_ca_profile(args.ca_der.read_bytes()), 0o644)
+    print("rendered Xray config and node URI%s" % (
+        " with iOS CA profile" if args.profile else ""
+    ))
 
 
 if __name__ == "__main__":

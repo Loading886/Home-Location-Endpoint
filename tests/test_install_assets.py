@@ -36,10 +36,41 @@ class InstallAssetTests(unittest.TestCase):
             private_key="A" * 43,
             short_id="0123456789abcdef",
         )
-        self.assertEqual(fragment["outbounds"][0], full["outbounds"][1])
-        expected_rule = dict(full["routing"]["rules"][0])
-        expected_rule.pop("inboundTag")
-        self.assertEqual(fragment["routing"]["rules"][0], expected_rule)
+        self.assertEqual(fragment["outbounds"], full["outbounds"][1:])
+        expected_rules = []
+        for rule in full["routing"]["rules"]:
+            expected_rule = dict(rule)
+            expected_rule.pop("inboundTag")
+            expected_rules.append(expected_rule)
+        self.assertEqual(fragment["routing"]["rules"], expected_rules)
+
+    def test_nontransactional_side_effects_follow_final_verification(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        verify = installer.index("/usr/local/sbin/hle verify")
+        commit = installer.index("TRANSACTION_COMMITTED=1", verify)
+        apply_sysctl = installer.index("apply_baseline", commit)
+        firewall = installer.index("open_active_firewall", commit)
+        self.assertLess(verify, commit)
+        self.assertLess(commit, apply_sysctl)
+        self.assertLess(commit, firewall)
+
+    def test_bootstrap_version_is_validated_before_package_changes(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        bootstrap = installer.index("bootstrap_if_needed()")
+        validation = installer.index("HLE_VERSION contains unsupported", bootstrap)
+        apt_update = installer.index("apt-get -o Acquire::Retries=3 update", bootstrap)
+        self.assertLess(validation, apt_update)
+
+    def test_service_and_log_limits_are_present(self):
+        service = (ROOT / "systemd" / "home-location-endpoint.service").read_text(
+            encoding="utf-8"
+        )
+        logrotate = (
+            ROOT / "configs" / "home-location-endpoint.logrotate"
+        ).read_text(encoding="utf-8")
+        self.assertIn("MemoryMax=256M", service)
+        self.assertIn("TasksMax=64", service)
+        self.assertIn("maxsize 16M", logrotate)
 
 
 if __name__ == "__main__":

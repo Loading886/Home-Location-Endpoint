@@ -1,11 +1,18 @@
 import math
 import unittest
+from unittest import mock
 
 from home_location_endpoint import gsloc_rewrite as gx
 from home_location_endpoint import wifitile_rewrite as wx
 
 
 class WlocRewriteTests(unittest.TestCase):
+    def test_parser_rejects_excessive_field_counts(self):
+        message = gx.tag(1, gx.WIRE_VARINT) + gx.write_varint(1)
+        with mock.patch.object(gx, "MAX_PROTOBUF_FIELDS", 2):
+            with self.assertRaisesRegex(ValueError, "too many fields"):
+                gx.parse_fields(message * 3)
+
     def test_translation_preserves_batch_geometry(self):
         first = gx.build_wifi("aa:bb:cc:dd:ee:01", gx.build_location(34.0000, -118.0000, 30))
         second = gx.build_wifi("aa:bb:cc:dd:ee:02", gx.build_location(34.0010, -117.9980, 40))
@@ -47,6 +54,21 @@ class WlocRewriteTests(unittest.TestCase):
             "presets": {"one": {"lat": 1, "lon": 2, "datum": "gcj02"}},
         }
         with self.assertRaises(ValueError):
+            gx.resolve_target(presets)
+
+    def test_target_rejects_nonfinite_coordinates(self):
+        presets = {
+            "active": "bad",
+            "presets": {
+                "bad": {
+                    "lat": "nan",
+                    "lon": 0,
+                    "datum": "wgs84",
+                    "accuracy_m": 25,
+                }
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "latitude"):
             gx.resolve_target(presets)
 
 

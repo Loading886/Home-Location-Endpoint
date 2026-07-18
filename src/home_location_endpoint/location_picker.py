@@ -10,8 +10,11 @@ import json
 import math
 import os
 import random
+import re
 import secrets
 import tempfile
+import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -22,7 +25,11 @@ DEFAULT_GEOCODER = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "Home-Location-Endpoint/0.1 (+https://github.com/Loading886/Home-Location-Endpoint)"
 MAX_IP_RESPONSE = 1 * 1024 * 1024
 MAX_GEOCODER_RESPONSE = 16 * 1024 * 1024
+MAX_GEOMETRY_POINTS = 500_000
 EARTH_RADIUS_M = 6_371_008.8
+TIMEZONE_RE = re.compile(
+    r"^[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*$"
+)
 
 
 def _read_limited(response, limit):
@@ -32,17 +39,39 @@ def _read_limited(response, limit):
     return body
 
 
-def fetch_json(url, *, timeout=15, limit=MAX_IP_RESPONSE):
+def fetch_json(url, *, timeout=15, limit=MAX_IP_RESPONSE, attempts=3):
     if urllib.parse.urlsplit(url).scheme != "https":
         raise ValueError("provider URL must use HTTPS")
-    request = urllib.request.Request(
-        url,
-        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        if response.status != 200:
-            raise ValueError("provider returned HTTP %d" % response.status)
-        return json.loads(_read_limited(response, limit).decode("utf-8"))
+    attempts = max(1, int(attempts))
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        request = urllib.request.Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                if urllib.parse.urlsplit(response.geturl()).scheme != "https":
+                    raise ValueError("provider redirected away from HTTPS")
+                if response.status != 200:
+                    raise ValueError("provider returned HTTP %d" % response.status)
+                return json.loads(_read_limited(response, limit).decode("utf-8"))
+        except (OSError, ValueError) as exc:
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(min(2 ** (attempt - 1), 4))
+    raise ValueError("provider request failed after %d attempts" % attempts) from last_error
+
+
+def validate_provider_text(value, name, *, maximum, required=False):
+    text = str(value or "").strip()
+    if required and not text:
+        raise ValueError("IP provider did not return a usable %s" % name)
+    if len(text) > maximum:
+        raise ValueError("IP provider returned an overlong %s" % name)
+    if any(unicodedata.category(character).startswith("C") for character in text):
+        raise ValueError("IP provider returned control characters in %s" % name)
+    return text
 
 
 def validate_ip_location(data):
@@ -52,26 +81,40 @@ def validate_ip_location(data):
     parsed_ip = ipaddress.ip_address(ip)
     if not parsed_ip.is_global:
         raise ValueError("IP provider did not return a public egress address")
-    city = str(data.get("city", "")).strip()
+    city = validate_provider_text(data.get("city"), "city", maximum=200, required=True)
     country_code = str(data.get("country_code", "")).strip().upper()
-    if not city or len(country_code) != 2:
+    if (
+        len(country_code) != 2
+        or not country_code.isascii()
+        or not country_code.isalpha()
+    ):
         raise ValueError("IP provider did not return a usable city/country")
+    if isinstance(data.get("latitude"), bool) or isinstance(data.get("longitude"), bool):
+        raise ValueError("IP provider returned an invalid coordinate")
     lat = float(data["latitude"])
     lon = float(data["longitude"])
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+    if not (
+        math.isfinite(lat)
+        and math.isfinite(lon)
+        and -90 <= lat <= 90
+        and -180 <= lon <= 180
+    ):
         raise ValueError("IP provider returned an invalid coordinate")
     timezone = data.get("timezone", {})
     if isinstance(timezone, dict):
         timezone = timezone.get("id", "")
+    timezone = validate_provider_text(timezone, "timezone", maximum=128)
+    if timezone and not TIMEZONE_RE.fullmatch(timezone):
+        raise ValueError("IP provider returned an invalid timezone")
     return {
         "ip": ip,
         "city": city,
-        "region": str(data.get("region", "")).strip(),
-        "country": str(data.get("country", "")).strip(),
+        "region": validate_provider_text(data.get("region"), "region", maximum=200),
+        "country": validate_provider_text(data.get("country"), "country", maximum=200),
         "country_code": country_code,
         "latitude": lat,
         "longitude": lon,
-        "timezone": str(timezone or "").strip(),
+        "timezone": timezone,
     }
 
 
@@ -83,12 +126,40 @@ def city_cache_key(info):
 
 
 def _is_polygon(geometry):
-    return (
-        isinstance(geometry, dict)
-        and geometry.get("type") in {"Polygon", "MultiPolygon"}
-        and isinstance(geometry.get("coordinates"), list)
-        and geometry["coordinates"]
-    )
+    if not isinstance(geometry, dict):
+        return False
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+    if geometry_type not in {"Polygon", "MultiPolygon"} or not isinstance(
+        coordinates, list
+    ):
+        return False
+    polygons = [coordinates] if geometry_type == "Polygon" else coordinates
+    point_count = 0
+    try:
+        for polygon in polygons:
+            if not isinstance(polygon, list) or not polygon:
+                return False
+            for ring in polygon:
+                if not isinstance(ring, list) or len(ring) < 4:
+                    return False
+                for point in ring:
+                    if not isinstance(point, (list, tuple)) or len(point) < 2:
+                        return False
+                    lon, lat = float(point[0]), float(point[1])
+                    if not (
+                        math.isfinite(lat)
+                        and math.isfinite(lon)
+                        and -90 <= lat <= 90
+                        and -180 <= lon <= 180
+                    ):
+                        return False
+                    point_count += 1
+                    if point_count > MAX_GEOMETRY_POINTS:
+                        return False
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return point_count > 0
 
 
 def choose_city_geometry(results, info):
@@ -99,6 +170,8 @@ def choose_city_geometry(results, info):
         if not isinstance(result, dict) or not _is_polygon(result.get("geojson")):
             continue
         address = result.get("address") or {}
+        if not isinstance(address, dict):
+            continue
         result_country = str(address.get("country_code", "")).upper()
         if result_country and result_country != info["country_code"]:
             continue
@@ -121,6 +194,9 @@ def fetch_city_geometry(info, geocoder_url=DEFAULT_GEOCODER):
         "countrycodes": info["country_code"].lower(),
         "addressdetails": "1",
         "polygon_geojson": "1",
+        # Topology-preserving simplification keeps large metro boundaries from
+        # expanding into hundreds of megabytes of Python objects on small VPSes.
+        "polygon_threshold": "0.0001",
         "limit": "5",
     }
     url = geocoder_url + "?" + urllib.parse.urlencode(
@@ -221,7 +297,7 @@ def load_cached_geometry(path, info):
     return geometry if _is_polygon(geometry) else None
 
 
-def atomic_json(path, value, mode=0o600):
+def atomic_json(path, value, mode=0o600, *, uid=None, gid=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
     try:
@@ -229,6 +305,10 @@ def atomic_json(path, value, mode=0o600):
             os.fchmod(fd, mode)
         else:
             os.chmod(temporary, mode)
+        if uid is not None or gid is not None:
+            if not hasattr(os, "fchown"):
+                raise OSError("atomic ownership changes require POSIX fchown")
+            os.fchown(fd, -1 if uid is None else uid, -1 if gid is None else gid)
         handle = os.fdopen(fd, "w", encoding="utf-8")
         fd = None
         with handle:
@@ -259,7 +339,7 @@ def select_location(
     if geometry is not None:
         try:
             lat, lon = random_point_in_geometry(geometry, rng)
-        except ValueError:
+        except (IndexError, TypeError, ValueError, OverflowError):
             geometry = None
     if geometry is None:
         method = "ip-center-radius-fallback"
@@ -310,11 +390,20 @@ def parse_args():
     parser.add_argument("--ip-json", type=Path, help="offline IP response for tests")
     parser.add_argument("--geometry-json", type=Path, help="offline GeoJSON for tests")
     parser.add_argument("--seed", type=int, help="deterministic tests only")
+    parser.add_argument("--output-mode", type=lambda value: int(value, 8), default=0o600)
+    parser.add_argument("--output-uid", type=int)
+    parser.add_argument("--output-gid", type=int)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    if not 0 <= args.output_mode <= 0o777:
+        raise SystemExit("--output-mode must be an octal mode between 000 and 777")
+    if args.output_uid is not None and args.output_uid < 0:
+        raise SystemExit("--output-uid must be non-negative")
+    if args.output_gid is not None and args.output_gid < 0:
+        raise SystemExit("--output-gid must be non-negative")
     ip_data = (
         json.loads(args.ip_json.read_text(encoding="utf-8"))
         if args.ip_json
@@ -344,7 +433,13 @@ def main():
         fallback_radius_m=args.fallback_radius_m,
         rng=rng,
     )
-    atomic_json(args.output, build_config(info, lat, lon, method))
+    atomic_json(
+        args.output,
+        build_config(info, lat, lon, method),
+        mode=args.output_mode,
+        uid=args.output_uid,
+        gid=args.output_gid,
+    )
     print("selected %s, %s via %s" % (info["city"], info["country_code"], method))
 
 

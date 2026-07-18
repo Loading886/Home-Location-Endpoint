@@ -29,7 +29,14 @@ PYTHONPATH=src python3 -m home_location_endpoint.render \
     --server 203.0.113.9 --port 443 --uuid "${CLIENT_UUID}" \
     --reality-sni www.microsoft.com --reality-target www.microsoft.com:443 \
     --private-key "${PRIVATE_KEY}" --public-key "${PUBLIC_KEY}" \
-    --short-id 0123456789abcdef
+    --short-id 0123456789abcdef \
+    --listen :: \
+    --fallback-upload-after 8388608 \
+    --fallback-upload-rate 786432 \
+    --fallback-upload-burst 3145728 \
+    --fallback-download-after 9437184 \
+    --fallback-download-rate 917504 \
+    --fallback-download-burst 4194304
 
 "${TEMPORARY}/xray" run -test -config "${TEMPORARY}/config.json"
 grep -q 'packetEncoding=xudp' "${TEMPORARY}/node-uri.txt"

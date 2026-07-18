@@ -102,6 +102,29 @@ class LocationPickerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             picker.validate_ip_location(broken)
 
+    def test_rejects_invalid_country_code(self):
+        broken = dict(IP_DATA)
+        broken["country_code"] = "1!"
+        with self.assertRaises(ValueError):
+            picker.validate_ip_location(broken)
+
+    def test_rejects_provider_control_characters(self):
+        broken = dict(IP_DATA)
+        broken["city"] = "Example\x1b[31mCity"
+        with self.assertRaisesRegex(ValueError, "control characters"):
+            picker.validate_ip_location(broken)
+
+    def test_malformed_geometry_falls_back_safely(self):
+        malformed = {
+            "type": "Polygon",
+            "coordinates": [[["not-a-longitude", 34], [0, 0], [0, 1], [0, 0]]],
+        }
+        self.assertFalse(picker._is_polygon(malformed))
+        _info, _lat, _lon, method = picker.select_location(
+            IP_DATA, geometry=malformed, rng=random.Random(5)
+        )
+        self.assertEqual(method, "ip-center-radius-fallback")
+
 
 def haversine_m(lat1, lon1, lat2, lon2):
     p1 = math.radians(lat1)

@@ -7,6 +7,7 @@ After=network-online.target home-location-endpoint.service
 Type=simple
 User=xray
 Group=xray
+UMask=0077
 ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
 Restart=on-failure
 RestartSec=3s

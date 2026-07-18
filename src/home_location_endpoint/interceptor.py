@@ -34,25 +34,49 @@ if _HERE not in sys.path:
 import gsloc_rewrite as gx  # noqa: E402
 import wifitile_rewrite as wx  # noqa: E402
 
+
+def _bounded_env_int(name, default, minimum, maximum):
+    value = int(os.environ.get(name, str(default)))
+    if not minimum <= value <= maximum:
+        raise ValueError("%s must be between %d and %d" % (name, minimum, maximum))
+    return value
+
+
+def _bounded_env_float(name, default, minimum, maximum):
+    value = float(os.environ.get(name, str(default)))
+    if not minimum <= value <= maximum:
+        raise ValueError("%s must be between %s and %s" % (name, minimum, maximum))
+    return value
+
+
 LISTEN_HOST = os.environ.get("GSLOC_LISTEN_HOST", "127.0.0.1")
-LISTEN_PORT = int(os.environ.get("GSLOC_LISTEN_PORT", "10451"))
+LISTEN_PORT = _bounded_env_int("GSLOC_LISTEN_PORT", 10451, 1, 65535)
 LEAF_CRT = os.environ.get("GSLOC_LEAF_CRT", "/etc/home-location-endpoint/leaf.crt")
 LEAF_KEY = os.environ.get("GSLOC_LEAF_KEY", "/etc/home-location-endpoint/leaf.key")
 PRESETS = os.environ.get("GSLOC_PRESETS", "/etc/home-location-endpoint/location.json")
 JITTER_SEED = os.environ.get("GSLOC_JITTER_SEED", "/etc/home-location-endpoint/jitter.seed")
 LOG = os.environ.get("GSLOC_LOG", "/var/log/home-location-endpoint/interceptor.log")
-UPSTREAM_TIMEOUT = float(os.environ.get("GSLOC_UPSTREAM_TIMEOUT", "10"))
-UPSTREAM_ATTEMPTS = max(1, int(os.environ.get("GSLOC_UPSTREAM_ATTEMPTS", "2")))
-UPSTREAM_RETRY_DELAY = max(0.0, float(os.environ.get("GSLOC_UPSTREAM_RETRY_DELAY", "0.15")))
-CLIENT_TIMEOUT = float(os.environ.get("GSLOC_CLIENT_TIMEOUT", "15"))
+UPSTREAM_TIMEOUT = _bounded_env_float("GSLOC_UPSTREAM_TIMEOUT", 10, 1, 120)
+UPSTREAM_ATTEMPTS = _bounded_env_int("GSLOC_UPSTREAM_ATTEMPTS", 2, 1, 5)
+UPSTREAM_RETRY_DELAY = _bounded_env_float(
+    "GSLOC_UPSTREAM_RETRY_DELAY", 0.15, 0, 10
+)
+CLIENT_TIMEOUT = _bounded_env_float("GSLOC_CLIENT_TIMEOUT", 15, 1, 120)
 UPSTREAM_INSECURE = os.environ.get("GSLOC_UPSTREAM_INSECURE", "0") == "1"
 FAIL_CLOSED = os.environ.get("GSLOC_FAIL_CLOSED", "1") != "0"
-MAX_REQUEST_BODY = max(1024, int(os.environ.get("GSLOC_MAX_REQUEST_BODY", str(8 * 1024 * 1024))))
-MAX_RESPONSE_BODY = max(1024, int(os.environ.get("GSLOC_MAX_RESPONSE_BODY", str(32 * 1024 * 1024))))
-MAX_DECOMPRESSED_BODY = max(
-    1024, int(os.environ.get("GSLOC_MAX_DECOMPRESSED_BODY", str(64 * 1024 * 1024)))
+MAX_REQUEST_BODY = _bounded_env_int(
+    "GSLOC_MAX_REQUEST_BODY", 2 * 1024 * 1024, 1024, 16 * 1024 * 1024
 )
-MAX_WORKERS = max(1, int(os.environ.get("GSLOC_MAX_WORKERS", "64")))
+MAX_RESPONSE_BODY = _bounded_env_int(
+    "GSLOC_MAX_RESPONSE_BODY", 8 * 1024 * 1024, 1024, 64 * 1024 * 1024
+)
+MAX_DECOMPRESSED_BODY = _bounded_env_int(
+    "GSLOC_MAX_DECOMPRESSED_BODY", 16 * 1024 * 1024, 1024, 128 * 1024 * 1024
+)
+MAX_WORKERS = _bounded_env_int("GSLOC_MAX_WORKERS", 4, 1, 32)
+MAX_LOG_BYTES = _bounded_env_int(
+    "GSLOC_MAX_LOG_BYTES", 16 * 1024 * 1024, 1024 * 1024, 1024 * 1024 * 1024
+)
 
 # Only these hosts get their /clls/wloc body rewritten; both CN and non-CN so a
 # successful spoof that flips the device off the -cn endpoint stays covered.
@@ -77,6 +101,9 @@ HOP_BY_HOP_REQUEST_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
+HOP_BY_HOP_RESPONSE_HEADERS = set(HOP_BY_HOP_REQUEST_HEADERS)
+SINGLETON_HEADERS = {"content-length", "host", "transfer-encoding"}
+HEADER_NAME_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 _log_lock = threading.Lock()
 _presets_cache = {"mtime": None, "value": None}
@@ -91,13 +118,22 @@ def log(msg):
     with _log_lock:
         sys.stdout.write(line + "\n")
         sys.stdout.flush()
+        fd = None
         try:
-            fd = os.open(LOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+            flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(LOG, flags, 0o600)
             os.fchmod(fd, 0o600)
+            if os.fstat(fd).st_size >= MAX_LOG_BYTES:
+                return
             with os.fdopen(fd, "a", encoding="utf-8") as handle:
+                fd = None
                 handle.write(line + "\n")
         except OSError:
             pass
+        finally:
+            if fd is not None:
+                os.close(fd)
 
 
 def load_jitter_seed():
@@ -106,7 +142,7 @@ def load_jitter_seed():
         stat_result = os.stat(JITTER_SEED)
     except OSError as exc:
         raise RuntimeError("jitter seed unreadable: %r" % (exc,))
-    fingerprint = (stat_result.st_mtime_ns, stat_result.st_size)
+    fingerprint = (stat_result.st_ino, stat_result.st_mtime_ns, stat_result.st_size)
     with _jitter_seed_lock:
         if _jitter_seed_cache["fingerprint"] != fingerprint:
             try:
@@ -128,7 +164,7 @@ def active_target(now=None):
             stat_result = os.stat(PRESETS)
         except OSError as exc:
             raise RuntimeError("presets unreadable: %r" % (exc,))
-        fingerprint = (stat_result.st_mtime_ns, stat_result.st_size)
+        fingerprint = (stat_result.st_ino, stat_result.st_mtime_ns, stat_result.st_size)
         if _presets_cache["mtime"] != fingerprint:
             _presets_cache["value"] = gx.load_presets(PRESETS)
             _presets_cache["mtime"] = fingerprint
@@ -149,7 +185,24 @@ def is_assist_host(host):
 
 
 def is_allowed_host(host):
+    host = str(host or "").strip().rstrip(".").lower()
     return host in GSLOC_HOSTS or is_assist_host(host)
+
+
+def normalize_location_host(value):
+    value = str(value or "").strip()
+    if not value or value.startswith("[") or value.count(":") > 1:
+        raise ValueError("invalid location Host header")
+    host, separator, port = value.rpartition(":")
+    if separator:
+        if not port.isdigit() or not 1 <= int(port) <= 65535:
+            raise ValueError("invalid port in location Host header")
+    else:
+        host = value
+    host = host.rstrip(".").lower()
+    if not is_allowed_host(host):
+        raise ValueError("unexpected upstream host: %s" % host)
+    return host
 
 
 def is_wifi_tile_request(host, method, path):
@@ -173,6 +226,14 @@ def select_origin_host(requested_host, method, path):
 def operational_path(path):
     """Keep routine logs useful without retaining URL query material."""
     return str(path or "").split("?", 1)[0]
+
+
+def is_wloc_request(host, method, path):
+    return (
+        host in GSLOC_HOSTS
+        and method == "POST"
+        and operational_path(path) == "/clls/wloc"
+    )
 
 
 def rewrite_wifi_tile_response(body, content_encoding, lat, lon):
@@ -200,56 +261,90 @@ def rewrite_wifi_tile_response(body, content_encoding, lat, lon):
 
 # --- minimal HTTP/1.1 helpers ------------------------------------------------
 
+def _read_crlf_line(reader, limit):
+    line = reader.readline(limit + 1)
+    if not line:
+        raise ConnectionError("EOF before CRLF")
+    if len(line) > limit or not line.endswith(b"\r\n"):
+        raise ValueError("HTTP line too large or missing CRLF")
+    return line[:-2]
+
+
 def read_headers(reader):
     """Read start line + headers. Returns (start_line:str, header_lines:list[str])."""
-    raw = bytearray()
-    while b"\r\n\r\n" not in raw:
-        chunk = reader.read(1)
-        if not chunk:
-            raise ConnectionError("EOF before end of headers")
-        raw += chunk
-        if len(raw) > 65536:
+    total = 0
+    start_line = _read_crlf_line(reader, 8192)
+    total += len(start_line) + 2
+    lines = []
+    while True:
+        line = _read_crlf_line(reader, 16384)
+        total += len(line) + 2
+        if total > 65536:
             raise ValueError("header block too large")
-    head = raw.split(b"\r\n\r\n", 1)[0].decode("latin1")
-    lines = head.split("\r\n")
-    return lines[0], lines[1:]
+        if not line:
+            break
+        lines.append(line.decode("latin1"))
+    return start_line.decode("latin1"), lines
 
 
 def header_map(lines):
     out = {}
     for line in lines:
-        if ":" in line:
-            key, value = line.split(":", 1)
-            out[key.strip().lower()] = value.strip()
+        if not line or line[0] in " \t" or ":" not in line:
+            raise ValueError("malformed or folded HTTP header")
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if not HEADER_NAME_RE.fullmatch(key):
+            raise ValueError("invalid HTTP header name")
+        if any(
+            (ord(character) < 32 and character != "\t") or ord(character) == 127
+            for character in value
+        ):
+            raise ValueError("control character in HTTP header value")
+        if key in SINGLETON_HEADERS and key in out:
+            raise ValueError("duplicate singleton HTTP header: %s" % key)
+        out[key] = value if key not in out else out[key] + ", " + value
+    if "content-length" in out and "transfer-encoding" in out:
+        raise ValueError("both Content-Length and Transfer-Encoding are present")
     return out
 
 
 def read_body(reader, headers, max_bytes=MAX_REQUEST_BODY):
     te = headers.get("transfer-encoding", "").lower()
-    if "chunked" in te:
+    if te and te != "chunked":
+        raise ValueError("unsupported Transfer-Encoding")
+    if te == "chunked":
         body = bytearray()
         while True:
-            size_line = b""
-            while not size_line.endswith(b"\r\n"):
-                b1 = reader.read(1)
-                if not b1:
-                    raise ConnectionError("EOF in chunk size")
-                size_line += b1
-                if len(size_line) > 128:
-                    raise ValueError("chunk-size line too large")
-            size = int(size_line.strip().split(b";", 1)[0], 16)
+            size_line = _read_crlf_line(reader, 128)
+            size_text = size_line.split(b";", 1)[0].strip()
+            if not size_text or not re.fullmatch(rb"[0-9A-Fa-f]+", size_text):
+                raise ValueError("invalid chunk size")
+            size = int(size_text, 16)
             if size < 0:
                 raise ValueError("negative chunk size")
             if size == 0:
-                reader.read(2)  # trailing CRLF after the last chunk
+                trailer_bytes = 0
+                while True:
+                    trailer = _read_crlf_line(reader, 8192)
+                    trailer_bytes += len(trailer) + 2
+                    if trailer_bytes > 16384:
+                        raise ValueError("chunk trailers too large")
+                    if not trailer:
+                        break
                 break
             if len(body) + size > max_bytes:
                 raise ValueError("HTTP body too large")
             body += _read_exact(reader, size)
-            reader.read(2)  # CRLF after chunk data
+            if _read_exact(reader, 2) != b"\r\n":
+                raise ValueError("chunk data is not followed by CRLF")
         return bytes(body)
     if "content-length" in headers:
-        size = int(headers["content-length"])
+        content_length = headers["content-length"].strip()
+        if not content_length.isdigit():
+            raise ValueError("invalid Content-Length")
+        size = int(content_length)
         if size < 0 or size > max_bytes:
             raise ValueError("HTTP body too large")
         return _read_exact(reader, size)
@@ -282,11 +377,17 @@ def read_response_body(reader, headers):
 def build_upstream_request(host, request_line, header_lines, body):
     """Rebuild a de-chunked HTTP/1.1 request without dropping Apple X-* headers."""
     forwarded = [("Host", host)]
+    connection_tokens = set()
+    for line in header_lines:
+        if ":" in line and line.split(":", 1)[0].strip().lower() == "connection":
+            connection_tokens.update(
+                token.strip().lower() for token in line.split(":", 1)[1].split(",")
+            )
     for line in header_lines:
         if ":" not in line:
             continue
         name, value = line.split(":", 1)
-        if name.strip().lower() in HOP_BY_HOP_REQUEST_HEADERS:
+        if name.strip().lower() in HOP_BY_HOP_REQUEST_HEADERS | connection_tokens:
             continue
         if name.strip().lower() == "accept-encoding":
             continue
@@ -318,10 +419,7 @@ def fetch_upstream(host, request_line, header_lines, body):
             tls = ctx.wrap_socket(raw, server_hostname=host)
             tls.sendall(request_bytes)
             reader = tls.makefile("rb")
-            status_line, response_header_lines = read_headers(reader)
-            headers = header_map(response_header_lines)
-            resp_body = read_response_body(reader, headers)
-            return status_line, response_header_lines, headers, resp_body
+            return read_final_response(reader)
         except (ConnectionError, OSError, ssl.SSLError) as exc:
             last_error = exc
             if attempt < UPSTREAM_ATTEMPTS:
@@ -336,13 +434,63 @@ def fetch_upstream(host, request_line, header_lines, body):
     raise last_error
 
 
+def read_final_response(reader):
+    for _ in range(6):
+        status_line, response_header_lines = read_headers(reader)
+        validate_status_line(status_line)
+        headers = header_map(response_header_lines)
+        status_code = int(status_line.split(" ", 2)[1])
+        if 100 <= status_code < 200:
+            if status_code == 101:
+                raise ValueError("upstream protocol upgrades are unsupported")
+            continue
+        if status_code in {204, 304}:
+            resp_body = b""
+        else:
+            resp_body = read_response_body(reader, headers)
+        return status_line, response_header_lines, headers, resp_body
+    raise ValueError("too many informational upstream responses")
+
+
+def validate_request_line(request_line):
+    parts = request_line.split(" ")
+    if len(parts) != 3:
+        raise ValueError("malformed HTTP request line")
+    method, path, version = parts
+    if method not in {"GET", "POST"} or version != "HTTP/1.1":
+        raise ValueError("unsupported HTTP method or version")
+    if (
+        not path.startswith("/")
+        or any(not 0x21 <= ord(character) <= 0x7E for character in path)
+    ):
+        raise ValueError("invalid origin-form request target")
+    return method, path
+
+
+def validate_status_line(status_line):
+    parts = status_line.split(" ", 2)
+    if (
+        len(parts) < 2
+        or parts[0] not in {"HTTP/1.0", "HTTP/1.1"}
+        or len(parts[1]) != 3
+        or not parts[1].isdigit()
+        or any(ord(character) < 32 or ord(character) == 127 for character in status_line)
+    ):
+        raise ValueError("malformed upstream HTTP status line")
+
+
 def build_response(status_line, header_lines, headers, body, strip_content_encoding=False):
     keep = []
+    connection_tokens = {
+        token.strip().lower()
+        for token in headers.get("connection", "").split(",")
+        if token.strip()
+    }
     for line in header_lines:
         if ":" not in line:
             continue
         name = line.split(":", 1)[0].strip().lower()
-        if name in {"content-length", "transfer-encoding", "connection"}:
+        if name in HOP_BY_HOP_RESPONSE_HEADERS | connection_tokens:
             continue
         if strip_content_encoding and name == "content-encoding":
             continue
@@ -381,16 +529,10 @@ def handle(conn, addr, ctx):
         req_headers = header_map(header_lines)
         body = read_body(reader, req_headers)
 
-        parts = request_line.split(" ")
-        method = parts[0] if parts else ""
-        path = parts[1] if len(parts) > 1 else ""
+        method, path = validate_request_line(request_line)
         # Upstream host comes from the phone's HTTP/1.1 Host header (mandatory);
         # no reliance on SNI, so a single shared TLS context stays thread-safe.
-        upstream = req_headers.get("host", "").split(":", 1)[0]
-        if not upstream:
-            raise ValueError("request has no Host header")
-        if not is_allowed_host(upstream):
-            raise ValueError("unexpected upstream host: %s" % upstream)
+        upstream = normalize_location_host(req_headers.get("host", ""))
 
         origin = select_origin_host(upstream, method, path)
         if origin != upstream:
@@ -412,9 +554,7 @@ def handle(conn, addr, ctx):
         strip_content_encoding = False
         count = 0
         if (
-            method == "POST"
-            and path.startswith("/clls/wloc")
-            and upstream in GSLOC_HOSTS
+            is_wloc_request(upstream, method, path)
             and status_line.split(" ")[1:2] == ["200"]
         ):
             try:
@@ -495,6 +635,10 @@ def handle(conn, addr, ctx):
                    status_line.split(' ')[1:2], len(resp_body)))
     except Exception as exc:
         log("ERROR peer=%s:%d host=%s err=%r" % (addr[0], addr[1], upstream, exc))
+        try:
+            tls.sendall(build_error_response())
+        except (OSError, ssl.SSLError):
+            pass
     finally:
         _safe_close(tls)
 
@@ -533,7 +677,7 @@ def main():
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((LISTEN_HOST, LISTEN_PORT))
-    srv.listen(128)
+    srv.listen(max(8, MAX_WORKERS * 2))
     log("LISTENING %s:%d leaf=%s presets=%s insecure_upstream=%s attempts=%d "
         "fail_closed=%s max_workers=%d"
         % (LISTEN_HOST, LISTEN_PORT, LEAF_CRT, PRESETS, UPSTREAM_INSECURE,
