@@ -24,10 +24,21 @@ def load_location():
     return json.loads((ETC / "location.json").read_text(encoding="utf-8"))
 
 
+def install_mode():
+    path = ETC / "mode"
+    if path.exists():
+        mode = path.read_text(encoding="utf-8").strip()
+        if mode in {"full", "modifier-only"}:
+            return mode
+    return "full" if (ETC / "node-uri.txt").exists() else "modifier-only"
+
+
 def command_status(_args):
     location = load_location()
+    mode = install_mode()
     source = location.get("source", {})
     preset = location["presets"][location["active"]]
+    print("Mode: %s" % mode)
     print("Location: %s, %s" % (source.get("city", "unknown"), source.get("country_code", "--")))
     print("Selection: %s" % source.get("selection", "unknown"))
     print("Selected at: %s" % source.get("selected_at", "unknown"))
@@ -36,7 +47,10 @@ def command_status(_args):
         location.get("jitter", {}).get("period_s", 0),
     ))
     print("Coordinate stored: %.6f, %.6f" % (preset["lat"], preset["lon"]))
-    for service in ("home-location-endpoint.service", "xray.service"):
+    services = ["home-location-endpoint.service"]
+    if mode == "full":
+        services.append("xray.service")
+    for service in services:
         result = subprocess.run(
             ["systemctl", "is-active", "--quiet", service], check=False
         )
@@ -61,7 +75,10 @@ def command_relocate(args):
 
 
 def command_show_link(_args):
-    sys.stdout.write((ETC / "node-uri.txt").read_text(encoding="utf-8"))
+    path = ETC / "node-uri.txt"
+    if not path.exists():
+        raise SystemExit("no node URI: this host uses modifier-only mode")
+    sys.stdout.write(path.read_text(encoding="utf-8"))
 
 
 def command_profile(_args):
@@ -69,18 +86,31 @@ def command_profile(_args):
 
 
 def command_verify(_args):
+    mode = install_mode()
     failures = 0
     checks = [
-        (["/usr/local/bin/xray", "run", "-test", "-config", "/usr/local/etc/xray/config.json"], "Xray config"),
         ([sys.executable, "-m", "py_compile", str(APP / "interceptor.py")], "interceptor syntax"),
         (["openssl", "verify", "-CAfile", str(ETC / "ca.crt"), str(ETC / "leaf.crt")], "leaf certificate"),
     ]
+    if mode == "full":
+        checks.insert(0, (
+            ["/usr/local/bin/xray", "run", "-test", "-config", "/usr/local/etc/xray/config.json"],
+            "Xray config",
+        ))
+    else:
+        checks.append((
+            [sys.executable, "-m", "json.tool", str(ETC / "xray-location-routing.example.json")],
+            "Xray integration example",
+        ))
     for command, label in checks:
         result = subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         okay = result.returncode == 0
         print("%s: %s" % (label, "OK" if okay else "FAIL"))
         failures += 0 if okay else 1
-    for service in ("home-location-endpoint.service", "xray.service"):
+    services = ["home-location-endpoint.service"]
+    if mode == "full":
+        services.append("xray.service")
+    for service in services:
         result = subprocess.run(["systemctl", "is-active", "--quiet", service], check=False)
         okay = result.returncode == 0
         print("%s: %s" % (service, "OK" if okay else "FAIL"))

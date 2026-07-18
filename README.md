@@ -1,7 +1,12 @@
 # Home-Location-Endpoint
 
-把一台全新的 Linux 落地机部署为 **VLESS + REALITY + Vision** 代理出口，并只对 Apple
-网络定位相关请求返回该落地机 IP 所在城市内的随机坐标。普通代理流量仍由落地机直接出网。
+把一台 Linux 落地机部署为 Apple 网络定位修改端点。安装器提供两种模式：
+
+1. **完整代理端点（推荐）**：安装 VLESS + REALITY + Vision，并接入定位修改器。
+2. **仅定位修改器（高级）**：不安装代理核心，由用户把自己的代理入站接到定位修改器。
+
+两种模式都会按落地机公网出口 IP 识别城市，并在该城市内抽取随机坐标。普通代理流量不经
+定位修改器。
 
 > 当前为预发布版本。请先在非关键设备与非关键服务器上验证。不要依赖本项目处理紧急呼叫、
 > Find My、防盗、合规或人身安全场景。
@@ -9,17 +14,21 @@
 ## 特性
 
 - 支持 Debian 12/13、Ubuntu 22.04/24.04，`amd64` 与 `arm64`。
-- 自动安装并校验固定版本的 Xray-core。
-- 自动生成 VLESS + REALITY + Vision 节点、UUID、X25519 密钥和 short ID。
+- 可交互选择完整代理端点或仅定位修改器。
+- 完整模式自动安装并校验固定版本的 Xray-core，生成 VLESS + REALITY + Vision 节点。
+- 完整模式每次运行安装器都会随机打乱内置 SNI 池，并选用首个通过现场证书、TLS 1.3 与
+  HTTP/2 校验的站点。
 - 通过公网出口 IP 识别城市，再从该城市的 OpenStreetMap 行政边界内随机抽取 WGS84 坐标。
 - 若无法取得城市边界，则在 IP 定位中心附近 3 km 内随机回退，并明确标记回退状态。
 - 只路由 Apple 网络定位域名到本机拦截器；其他域名不会经过定位拦截器。
 - 保留 Apple 返回批次内的相对几何关系，并在选定中心周围做平滑的 8 m 微漂移。
 - 自动生成 iOS CA 描述文件；CA 私钥签发完成后立即删除。
 - 安装器不修改 SSH 端口、SSH 密钥、密码，也不会主动启用原本关闭的 UFW。
-- 重复安装或执行 `sudo hle relocate` 会重新随机选点，节点凭据默认保持不变。
+- 重复安装或执行 `sudo hle relocate` 会重新随机选点；完整模式重跑安装器还会更换 SNI。
 
 ## 工作方式
+
+完整模式：
 
 ```text
 iPhone full-tunnel client
@@ -33,45 +42,74 @@ Home-Location-Endpoint landing server
                                                       `-------------> Apple origin
 ```
 
+仅定位模式保留右侧的定位修改器，并提供 Xray 接线片段；代理入站、认证、出站与防火墙全部由
+高级用户自行管理。详见[仅定位修改器](docs/MODIFIER-ONLY.md)。
+
 如果前面还有中转，只允许使用 Realm 做纯 TCP 转发。Realm 不解密、不改写，也不运行第二层
 VLESS/REALITY；最终的 REALITY 服务和定位拦截器必须在落地机上。详见
 [Realm 中转说明](docs/REALM.md)。
 
 ## 一键安装
 
-准备一台没有现存 Xray 配置的干净服务器，并在服务商防火墙中开放 TCP 443：
+交互安装会询问选择完整模式或仅定位模式：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
   | sudo bash
 ```
 
-自定义端口或 REALITY 伪装站点：
+完整模式要求服务器上没有不受本项目管理的 Xray 配置；仅定位模式可以与用户现有代理核心共存。
+
+无人值守安装完整模式：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
+  | sudo bash -s -- --mode full --port 443
+```
+
+无人值守安装仅定位模式：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
+  | sudo bash -s -- --mode modifier-only
+```
+
+完整模式默认从仓库内的去重候选池随机打乱，逐个检查 TLS 1.3、HTTP/2、证书链和主机名，
+使用首个校验成功的 SNI。也可以显式覆盖：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
   | sudo bash -s -- \
+      --mode full \
       --port 443 \
-      --reality-sni www.microsoft.com \
-      --reality-target www.microsoft.com:443
+      --reality-sni www.aws.com \
+      --reality-target www.aws.com:443
 ```
 
 REALITY 的 SNI/target 必须能从该服务器正常建立 TLS，且证书应匹配 SNI。生产使用时优先选择
-与服务器网络位置合适、长期稳定、不是通用 CDN 开放转发目标的站点。
+与服务器网络位置合适、长期稳定、不是通用 CDN 开放转发目标的站点。候选池来自操作者提供的
+名单，进入池中不代表项目对站点可用性、安全性或长期稳定性作保证。
 
-安装结束会输出：
+> 完整模式每次重跑安装器都会重新选择 SNI，即使 UUID、X25519 密钥和 short ID 被复用，
+> VLESS URI 也会变化。重跑后必须把新 URI 更新到客户端及所有使用该参数的配置中。
+
+完整模式安装结束会输出：
 
 - 一行 VLESS URI；
 - `/etc/home-location-endpoint/Home-Location-Endpoint-CA.mobileconfig`；
 - CA 的 SHA-256 指纹；
 - IP 识别城市与抽样方式。
 
+仅定位模式输出 CA 描述文件、回环监听地址和 Xray 接线片段，不生成 VLESS URI，也不安装 Xray、
+TCP 调优或防火墙规则。
+
 ## iPhone 设置
 
 1. 安全地把 `.mobileconfig` 复制到 iPhone，核对安装器输出的 CA SHA-256 指纹。
 2. 安装描述文件。
 3. 在“设置 → 通用 → 关于本机 → 证书信任设置”中为该 CA 开启完全信任。
-4. 把 VLESS URI 导入支持 REALITY + Vision 的客户端，并使用全局 TUN/VPN 模式连接。
+4. 完整模式把 VLESS URI 导入支持 REALITY + Vision 的客户端，并使用全局 TUN/VPN 模式连接；
+   仅定位模式按[接线文档](docs/MODIFIER-ONLY.md)接入自己的代理。
 5. 不再使用时，删除描述文件并关闭/删除该代理节点。
 
 只安装 CA、只配置系统 DNS、或只让浏览器走代理都不足以保证 Apple 定位请求经过落地机。
@@ -86,9 +124,11 @@ sudo hle profile
 sudo hle relocate
 ```
 
+`hle show-link` 只适用于完整模式。
+
 `hle relocate` 会在服务器当前公网出口 IP 所在城市重新随机取点。拦截器按文件变更自动加载，
-无需重启。安装器再次运行时同样会重新抽点，但会复用既有节点凭据与 CA，除非显式使用
-`--rotate-ca`。
+无需重启。安装器再次运行时同样会重新抽点，并默认复用既有 CA。完整模式会复用 UUID、
+X25519 密钥与 short ID，但会重新选择 SNI；`--rotate-ca` 才会轮换 CA。
 
 ## “每次随机”的定义
 
@@ -122,10 +162,10 @@ sudo hle relocate
 
 ## English
 
-Home-Location-Endpoint turns a clean Debian/Ubuntu landing server into a VLESS + REALITY + Vision
-endpoint and rewrites only scoped Apple network-location responses to a random WGS84 point inside
-the city detected from the server's public egress IP. Read the security and privacy limitations
-before installing the generated private CA on an iPhone.
+Home-Location-Endpoint installs either a complete VLESS + REALITY + Vision landing endpoint or an
+advanced location-modifier-only integration. It rewrites only scoped Apple network-location
+responses to a random WGS84 point inside the city detected from the server's public egress IP.
+Read the security and privacy limitations before trusting the generated private CA on an iPhone.
 
 ## License
 

@@ -1,0 +1,34 @@
+# One hostname per line. The installer shuffles this list and uses the first
+# candidate whose certificate, TLS 1.3, and HTTP/2 validate from the landing server.
+consent.trustarc.com
+github.gallerycdn.vsassets.io
+acctcdn.msftauth.net
+d3agakyjgjv5i8.cloudfront.net
+www.aws.com
+iosapps.itunes.apple.com
+tag-logger.demandbase.com
+beacon.gtv-pub.com
+aadcdn.msftauth.net
+c.6sc.co
+amp-api-edge.apps.apple.com
+r.bing.com
+devblogs.microsoft.com
+d.oracleinfinity.io
+th.bing.com
+assets.adobedtm.com
+tag.demandbase.com
+aws.com
+lpcdn.lpsnmedia.net
+prod.us-east-1.ui.gcr-chat.marketing.aws.dev
+i7158c100-ds-aksb-a.akamaihd.net
+visualstudio.microsoft.com
+www.oracle.com
+cdnssl.clicktale.net
+gray.video-player.arcpublishing.com
+is1-ssl.mzstatic.com
+downloaddispatch.itunes.apple.com
+publisher.liveperson.net
+b.6sc.co
+www.sony.com
+www.wowt.com
+ts1.tc.mm.bing.net

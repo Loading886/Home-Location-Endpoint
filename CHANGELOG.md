@@ -8,3 +8,7 @@
 - Random point selection inside the detected egress-IP city boundary.
 - Geometry-preserving WLOC and WifiTile translation with smooth micro-drift.
 - iOS CA profile generation, systemd hardening, verification CLI, and Realm guide.
+- Selectable full-endpoint and advanced modifier-only installation modes.
+- Deduplicated REALITY SNI pool with randomized order and live TLS 1.3, HTTP/2, and certificate
+  validation per run.
+- Mode-aware CLI checks and an Xray integration fragment for user-managed proxy cores.

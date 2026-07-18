@@ -1,0 +1,37 @@
+{
+  "outbounds": [
+    {
+      "tag": "location-interceptor",
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "AsIs",
+        "redirect": "127.0.0.1:10451",
+        "finalRules": [
+          {
+            "action": "allow",
+            "network": "tcp",
+            "ip": [
+              "127.0.0.1/32"
+            ],
+            "port": "10451"
+          }
+        ]
+      }
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "network": "tcp",
+        "port": "443",
+        "domain": [
+          "full:gs-loc.apple.com",
+          "full:gs-loc-cn.apple.com",
+          "regexp:^gspe85(-[0-9]+)?(-cn)?-ssl\\.ls\\.apple\\.com$"
+        ],
+        "outboundTag": "location-interceptor"
+      }
+    ]
+  }
+}

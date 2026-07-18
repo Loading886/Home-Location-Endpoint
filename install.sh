@@ -17,8 +17,13 @@ MARKER="${ETC_DIR}/managed-by-installer"
 
 PORT="443"
 SERVER=""
-REALITY_SNI="www.microsoft.com"
+MODE=""
+EXISTING_MODE=""
+MODE_EXPLICIT=0
+PROXY_OPTION_EXPLICIT=0
+REALITY_SNI=""
 REALITY_TARGET=""
+REALITY_EXPLICIT=0
 ROTATE_CA=0
 XRAY_BACKUP=""
 
@@ -69,39 +74,67 @@ bootstrap_if_needed() {
 }
 
 load_existing_settings() {
+    local mode_from_file="" mode_from_env=""
+    if [[ -f "${ETC_DIR}/mode" ]]; then
+        mode_from_file="$(<"${ETC_DIR}/mode")"
+        case "${mode_from_file}" in
+            full|modifier-only) ;;
+            *) die "invalid recorded installation mode: ${mode_from_file}" ;;
+        esac
+    fi
     if [[ -f "${ETC_DIR}/install.env" ]]; then
         # This file is created root-owned and mode 0600 by this installer.
         # shellcheck disable=SC1091
         source "${ETC_DIR}/install.env"
+        mode_from_env="${HLE_MODE:-full}"
+        case "${mode_from_env}" in
+            full|modifier-only) ;;
+            *) die "invalid installation mode in install.env: ${mode_from_env}" ;;
+        esac
         PORT="${HLE_PORT:-${PORT}}"
         SERVER="${HLE_SERVER:-${SERVER}}"
-        REALITY_SNI="${HLE_REALITY_SNI:-${REALITY_SNI}}"
-        REALITY_TARGET="${HLE_REALITY_TARGET:-${REALITY_TARGET}}"
     fi
+    if [[ -n "${mode_from_file}" && -n "${mode_from_env}" \
+          && "${mode_from_file}" != "${mode_from_env}" ]]; then
+        die "installation mode records disagree; refusing to guess"
+    fi
+    EXISTING_MODE="${mode_from_file:-${mode_from_env}}"
+    MODE="${EXISTING_MODE:-${MODE}}"
 }
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --mode)
+                [[ $# -ge 2 ]] || die "--mode needs a value"
+                MODE="$2"
+                MODE_EXPLICIT=1
+                shift 2
+                ;;
             --port)
                 [[ $# -ge 2 ]] || die "--port needs a value"
                 PORT="$2"
+                PROXY_OPTION_EXPLICIT=1
                 shift 2
                 ;;
             --server)
                 [[ $# -ge 2 ]] || die "--server needs a value"
                 SERVER="$2"
+                PROXY_OPTION_EXPLICIT=1
                 shift 2
                 ;;
             --reality-sni)
                 [[ $# -ge 2 ]] || die "--reality-sni needs a value"
                 REALITY_SNI="$2"
-                REALITY_TARGET=""
+                REALITY_EXPLICIT=1
+                PROXY_OPTION_EXPLICIT=1
                 shift 2
                 ;;
             --reality-target)
                 [[ $# -ge 2 ]] || die "--reality-target needs a value"
                 REALITY_TARGET="$2"
+                REALITY_EXPLICIT=1
+                PROXY_OPTION_EXPLICIT=1
                 shift 2
                 ;;
             --rotate-ca)
@@ -112,10 +145,11 @@ parse_args() {
                 cat <<'EOF'
 Usage: sudo bash install.sh [options]
 
+  --mode MODE              full or modifier-only (interactive when omitted)
   --port PORT              VLESS + REALITY listening port (default: 443)
   --server HOST_OR_IP      address written into the client URI (default: detected egress IP)
-  --reality-sni HOST       REALITY SNI (default: www.microsoft.com)
-  --reality-target H:P     REALITY camouflage target (default: SNI:443)
+  --reality-sni HOST       override the random validated REALITY SNI
+  --reality-target H:P     override target for an explicit SNI (default: SNI:443)
   --rotate-ca              replace the scoped CA and leaf certificate
 
 The installer never changes SSH ports, SSH keys, passwords, or existing firewall policy.
@@ -129,7 +163,41 @@ EOF
     done
     [[ "${PORT}" =~ ^[0-9]+$ ]] || die "port must be numeric"
     (( PORT >= 1 && PORT <= 65535 )) || die "port must be between 1 and 65535"
-    [[ -n "${REALITY_TARGET}" ]] || REALITY_TARGET="${REALITY_SNI}:443"
+}
+
+select_install_mode() {
+    local choice=""
+    if [[ -n "${EXISTING_MODE}" ]]; then
+        if [[ "${MODE_EXPLICIT}" -eq 1 && "${MODE}" != "${EXISTING_MODE}" ]]; then
+            die "changing an existing install from ${EXISTING_MODE} to ${MODE} is not supported"
+        fi
+        MODE="${EXISTING_MODE}"
+    elif [[ -z "${MODE}" ]]; then
+        if [[ -r /dev/tty ]]; then
+            cat > /dev/tty <<'EOF'
+
+Choose an installation mode:
+  1) Full proxy endpoint + location modifier (recommended)
+  2) Location modifier only (advanced; integrate your own proxy)
+EOF
+            read -r -p "Selection [1]: " choice < /dev/tty || true
+            case "${choice:-1}" in
+                1) MODE="full" ;;
+                2) MODE="modifier-only" ;;
+                *) die "invalid installation mode selection" ;;
+            esac
+        else
+            MODE="full"
+            note "No interactive terminal detected; selecting full mode"
+        fi
+    fi
+    case "${MODE}" in
+        full|modifier-only) ;;
+        *) die "mode must be full or modifier-only" ;;
+    esac
+    if [[ "${MODE}" == "modifier-only" && "${PROXY_OPTION_EXPLICIT}" -eq 1 ]]; then
+        die "--port, --server, and REALITY options apply only to full mode"
+    fi
 }
 
 check_os() {
@@ -182,7 +250,7 @@ PY
 }
 
 check_existing_installation() {
-    if [[ ! -f "${MARKER}" ]] && {
+    if [[ "${MODE}" == "full" && ! -f "${MARKER}" ]] && {
         [[ -f "${XRAY_CONFIG_DIR}/config.json" ]] ||
         [[ -f /etc/systemd/system/xray.service ]] ||
         [[ -f /lib/systemd/system/xray.service ]];
@@ -195,8 +263,52 @@ install_packages() {
     note "Installing required packages"
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        ca-certificates curl iproute2 kmod logrotate openssl procps \
-        python3 unzip uuid-runtime
+        ca-certificates curl logrotate openssl python3
+    if [[ "${MODE}" == "full" ]]; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            iproute2 kmod procps unzip uuid-runtime
+    fi
+}
+
+validate_reality_sni() {
+    PYTHONPATH="${SOURCE_DIR}/src" python3 -c \
+        'import sys; from home_location_endpoint.render import validate_host; validate_host(sys.argv[1], allow_ip=False)' \
+        "$1"
+}
+
+tls_target_works() {
+    local sni="$1" target="$2"
+    PYTHONPATH="${SOURCE_DIR}/src" python3 -m home_location_endpoint.reality_probe \
+        "${sni}" "${target}" >/dev/null 2>&1
+}
+
+select_reality_target() {
+    local candidate
+    local -a candidates=()
+    note "Selecting a random REALITY SNI with valid TLS 1.3 and HTTP/2"
+    if [[ "${REALITY_EXPLICIT}" -eq 1 ]]; then
+        [[ -n "${REALITY_SNI}" ]] || die "--reality-target also requires --reality-sni"
+        validate_reality_sni "${REALITY_SNI}" || die "invalid explicit REALITY SNI"
+        [[ -n "${REALITY_TARGET}" ]] || REALITY_TARGET="${REALITY_SNI}:443"
+        tls_target_works "${REALITY_SNI}" "${REALITY_TARGET}" \
+            || die "REALITY target ${REALITY_TARGET} did not validate for SNI ${REALITY_SNI}"
+        return
+    fi
+
+    mapfile -t candidates < <(
+        grep -Ev '^[[:space:]]*(#|$)' "${SOURCE_DIR}/configs/reality-sni.txt" | shuf
+    )
+    ((${#candidates[@]} > 0)) || die "REALITY SNI candidate list is empty"
+    for candidate in "${candidates[@]}"; do
+        validate_reality_sni "${candidate}" || continue
+        if tls_target_works "${candidate}" "${candidate}:443"; then
+            REALITY_SNI="${candidate}"
+            REALITY_TARGET="${candidate}:443"
+            printf 'Selected REALITY SNI: %s\n' "${REALITY_SNI}"
+            return
+        fi
+    done
+    die "none of the randomized REALITY SNI candidates passed live TLS validation"
 }
 
 install_xray() {
@@ -234,22 +346,27 @@ create_accounts_and_directories() {
     id -u home-location >/dev/null 2>&1 || useradd \
         --system --gid home-location --home-dir /nonexistent \
         --shell /usr/sbin/nologin home-location
-    getent group xray >/dev/null || groupadd --system xray
-    id -u xray >/dev/null 2>&1 || useradd \
-        --system --gid xray --home-dir /nonexistent \
-        --shell /usr/sbin/nologin xray
 
     install -d -o root -g home-location -m 0750 "${ETC_DIR}"
     install -d -o root -g root -m 0755 "${APP_DIR}"
     install -d -o root -g home-location -m 0750 "${STATE_DIR}"
     install -d -o home-location -g home-location -m 0750 "${LOG_DIR}"
-    install -d -o root -g xray -m 0750 "${XRAY_CONFIG_DIR}"
+    if [[ "${MODE}" == "full" ]]; then
+        getent group xray >/dev/null || groupadd --system xray
+        id -u xray >/dev/null 2>&1 || useradd \
+            --system --gid xray --home-dir /nonexistent \
+            --shell /usr/sbin/nologin xray
+        install -d -o root -g xray -m 0750 "${XRAY_CONFIG_DIR}"
+    fi
 
     install -o root -g root -m 0755 "${SOURCE_DIR}/src/home_location_endpoint/interceptor.py" "${APP_DIR}/interceptor.py"
     install -o root -g root -m 0644 "${SOURCE_DIR}/src/home_location_endpoint/gsloc_rewrite.py" "${APP_DIR}/gsloc_rewrite.py"
     install -o root -g root -m 0644 "${SOURCE_DIR}/src/home_location_endpoint/wifitile_rewrite.py" "${APP_DIR}/wifitile_rewrite.py"
     install -o root -g root -m 0755 "${SOURCE_DIR}/src/home_location_endpoint/location_picker.py" "${APP_DIR}/location_picker.py"
     install -o root -g root -m 0755 "${SOURCE_DIR}/src/home_location_endpoint/cli.py" "${APP_DIR}/cli.py"
+    install -o root -g root -m 0644 \
+        "${SOURCE_DIR}/configs/xray-location-routing.example.json" \
+        "${ETC_DIR}/xray-location-routing.example.json"
     ln -sfn "${APP_DIR}/cli.py" /usr/local/sbin/hle
 
     if [[ ! -f "${ETC_DIR}/jitter.seed" ]]; then
@@ -339,15 +456,6 @@ load_or_create_credentials() {
         || die "could not parse generated Xray credentials"
 }
 
-check_reality_target() {
-    note "Validating the REALITY camouflage target"
-    timeout 15 openssl s_client \
-        -connect "${REALITY_TARGET}" -servername "${REALITY_SNI}" \
-        -verify_hostname "${REALITY_SNI}" -verify_return_error -brief \
-        </dev/null >/dev/null 2>&1 \
-        || die "REALITY target ${REALITY_TARGET} did not validate for SNI ${REALITY_SNI}"
-}
-
 render_and_validate() {
     local stage
     note "Rendering and validating the endpoint configuration"
@@ -375,6 +483,7 @@ render_and_validate() {
 
     umask 0077
     {
+        printf 'HLE_MODE=%q\n' "${MODE}"
         printf 'HLE_PORT=%q\n' "${PORT}"
         printf 'HLE_SERVER=%q\n' "${SERVER}"
         printf 'HLE_REALITY_SNI=%q\n' "${REALITY_SNI}"
@@ -385,25 +494,46 @@ render_and_validate() {
         printf 'HLE_SHORT_ID=%q\n' "${SHORT_ID}"
     } > "${ETC_DIR}/install.env"
     chmod 0600 "${ETC_DIR}/install.env"
-    printf '%s\n' "${XRAY_VERSION}" > "${MARKER}"
+    printf 'mode=%s\nxray=%s\n' "${MODE}" "${XRAY_VERSION}" > "${MARKER}"
     chmod 0600 "${MARKER}"
 }
 
+write_common_mode_state() {
+    printf '%s\n' "${MODE}" > "${ETC_DIR}/mode"
+    chmod 0644 "${ETC_DIR}/mode"
+    if [[ "${MODE}" == "modifier-only" ]]; then
+        umask 0077
+        {
+            printf 'HLE_MODE=%q\n' "${MODE}"
+            printf 'HLE_SERVER=%q\n' "${SERVER}"
+        } > "${ETC_DIR}/install.env"
+        chmod 0600 "${ETC_DIR}/install.env"
+        printf 'mode=%s\n' "${MODE}" > "${MARKER}"
+        chmod 0600 "${MARKER}"
+    fi
+}
+
 install_services() {
-    note "Installing and starting the two scoped services"
+    note "Installing and starting the scoped location service"
     install -o root -g root -m 0644 \
         "${SOURCE_DIR}/systemd/home-location-endpoint.service" \
         /etc/systemd/system/home-location-endpoint.service
     install -o root -g root -m 0644 \
-        "${SOURCE_DIR}/systemd/xray.service" \
-        /etc/systemd/system/xray.service
-    install -o root -g root -m 0644 \
         "${SOURCE_DIR}/configs/home-location-endpoint.logrotate" \
         /etc/logrotate.d/home-location-endpoint
+    if [[ "${MODE}" == "full" ]]; then
+        install -o root -g root -m 0644 \
+            "${SOURCE_DIR}/systemd/xray.service" \
+            /etc/systemd/system/xray.service
+    fi
     systemctl daemon-reload
-    systemctl enable home-location-endpoint.service xray.service >/dev/null
+    systemctl enable home-location-endpoint.service >/dev/null
     systemctl restart home-location-endpoint.service \
         || die "the location interceptor failed to start; inspect journalctl -u home-location-endpoint"
+    if [[ "${MODE}" != "full" ]]; then
+        return
+    fi
+    systemctl enable xray.service >/dev/null
     if ! systemctl restart xray.service; then
         if [[ -n "${XRAY_BACKUP}" && -f "${XRAY_BACKUP}" ]]; then
             install -o root -g xray -m 0640 "${XRAY_BACKUP}" "${XRAY_CONFIG_DIR}/config.json"
@@ -429,16 +559,21 @@ show_result() {
     local city fingerprint
     city="$(python3 -c 'import json; d=json.load(open("/etc/home-location-endpoint/location.json")); print(d["source"]["city"]+", "+d["source"]["country_code"])')"
     fingerprint="$(openssl x509 -in "${ETC_DIR}/ca.crt" -noout -fingerprint -sha256 | cut -d= -f2)"
-    cat <<EOF
+    if [[ "${MODE}" == "full" ]]; then
+        cat <<EOF
 
-${PROJECT} is ready.
+${PROJECT} is ready in full mode.
 
 Random location city: ${city}
+REALITY SNI: ${REALITY_SNI}
 VLESS URI:
 $(cat "${ETC_DIR}/node-uri.txt")
 
 iOS CA profile: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
 CA SHA-256: ${fingerprint}
+
+If this landing server is behind one or more relays, use Realm pure TCP forwarding.
+Keep UUID, flow, SNI, REALITY public key, and short ID unchanged at every relay.
 
 Next:
   1. Copy the profile to the iPhone, install it, then enable full trust for this CA.
@@ -448,29 +583,59 @@ Next:
 
 SSH was not changed. If a provider firewall exists, allow TCP ${PORT} there.
 EOF
+        return
+    fi
+    cat <<EOF
+
+${PROJECT} is ready in modifier-only mode.
+
+Random location city: ${city}
+iOS CA profile: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
+CA SHA-256: ${fingerprint}
+Loopback interceptor: 127.0.0.1:10451
+Xray integration example: ${ETC_DIR}/xray-location-routing.example.json
+
+Next:
+  1. Copy the profile to the iPhone, install it, then enable full trust for this CA.
+  2. Merge the example outbound/routing rule into your own proxy configuration.
+  3. Enable TLS/HTTP sniffing with routeOnly on the inbound that carries phone traffic.
+  4. Run 'hle verify', then test that only the documented Apple hosts reach loopback:10451.
+
+No proxy core, proxy port, firewall rule, or TCP tuning was installed in this mode.
+EOF
 }
 
 main() {
     require_root
     bootstrap_if_needed "$@"
     check_os
-    check_existing_installation
     load_existing_settings
     parse_args "$@"
+    select_install_mode
+    check_existing_installation
     install_packages
-    check_port_available
-    install_xray
-    install_baseline
+    if [[ "${MODE}" == "full" ]]; then
+        check_port_available
+        install_xray
+        install_baseline
+    fi
     create_accounts_and_directories
     select_random_location
     generate_certificates
-    load_or_create_credentials
-    check_reality_target
-    render_and_validate
+    if [[ "${MODE}" == "full" ]]; then
+        select_reality_target
+        load_or_create_credentials
+        render_and_validate
+    fi
+    write_common_mode_state
     install_services
-    open_active_firewall
+    if [[ "${MODE}" == "full" ]]; then
+        open_active_firewall
+    fi
     /usr/local/sbin/hle verify
     show_result
 }
 
-main "$@"
+if [[ "${HLE_SOURCE_ONLY:-0}" != "1" ]]; then
+    main "$@"
+fi

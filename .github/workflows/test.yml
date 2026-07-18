@@ -21,8 +21,9 @@ jobs:
       - run: python -m pip install --disable-pip-version-check -e . ruff==0.15.22
       - run: python -m ruff check src tests
       - run: python -m unittest discover -v
-      - run: bash -n install.sh tests/integration_xray.sh
-      - run: shellcheck --severity=style install.sh tests/integration_xray.sh
+      - run: bash -n install.sh tests/integration_xray.sh tests/test_installer_modes.sh
+      - run: shellcheck --external-sources --severity=style install.sh tests/integration_xray.sh tests/test_installer_modes.sh
+      - run: bash tests/test_installer_modes.sh
       - if: matrix.python-version == '3.12'
         run: bash tests/integration_xray.sh
       - name: Public-tree secret and private-topology guard
