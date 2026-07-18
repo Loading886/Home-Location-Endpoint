@@ -8,6 +8,17 @@ from home_location_endpoint import cli, render
 
 
 class CliTests(unittest.TestCase):
+    def test_uninstall_requires_root(self):
+        with mock.patch.object(cli.os, "geteuid", return_value=1000):
+            with self.assertRaisesRegex(SystemExit, "must run as root"):
+                cli.command_uninstall(mock.Mock(yes=True))
+
+    def test_uninstall_is_a_registered_command(self):
+        with mock.patch("sys.argv", ["hle", "uninstall", "--yes"]):
+            args = cli.parse_args()
+        self.assertIs(args.func, cli.command_uninstall)
+        self.assertTrue(args.yes)
+
     def test_install_mode_rejects_corrupt_record(self):
         with tempfile.TemporaryDirectory() as temporary:
             etc = Path(temporary)

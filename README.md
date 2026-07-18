@@ -134,9 +134,16 @@ sudo hle status
 sudo hle show-link
 sudo hle profile
 sudo hle relocate
+sudo hle uninstall
 ```
 
-`hle show-link` 只适用于完整模式。
+`hle show-link` 只适用于完整模式。`hle` 命令是 `/usr/local/sbin/hle`，需要 root 运行；
+普通用户的 PATH 可能不含 `/usr/local/sbin`，因此上面统一用 `sudo`。
+
+`sudo hle uninstall` 停止并删除本项目安装的服务、受管文件、脚手证书 CA 与低权限账户，并在
+确认后执行（脚本化可加 `--yes`）。完整模式还会删除受管的 Xray、其配置、TCP sysctl 文件，并
+尝试移除本项目添加的 UFW 放行；仅定位模式只删除自身文件，不触碰你自己的代理核心。它不会
+删除已装到 iPhone 上的 CA 描述文件——请手动从手机移除。
 
 `hle relocate` 会在服务器当前公网出口 IP 所在城市重新随机取点。拦截器按文件变更自动加载，
 无需重启。安装器再次运行时同样会重新抽点，并默认复用既有 CA。完整模式会复用 UUID、

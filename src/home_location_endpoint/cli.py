@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import plistlib
+import shutil
 import stat
 import subprocess
 import sys
@@ -17,7 +18,14 @@ from pathlib import Path
 ETC = Path(os.environ.get("HLE_ETC", "/etc/home-location-endpoint"))
 APP = Path(os.environ.get("HLE_APP", "/opt/home-location-endpoint"))
 STATE = Path(os.environ.get("HLE_STATE", "/var/lib/home-location-endpoint"))
+LOG = Path(os.environ.get("HLE_LOG_DIR", "/var/log/home-location-endpoint"))
 LOCK = Path(os.environ.get("HLE_LOCK", "/run/home-location-endpoint.lock"))
+XRAY_CONFIG_DIR = Path(os.environ.get("HLE_XRAY_CONFIG_DIR", "/usr/local/etc/xray"))
+XRAY_BIN = Path("/usr/local/bin/xray")
+HLE_SYMLINK = Path("/usr/local/sbin/hle")
+SYSTEMD_DIR = Path("/etc/systemd/system")
+LOGROTATE_FILE = Path("/etc/logrotate.d/home-location-endpoint")
+SYSCTL_FILE = Path("/etc/sysctl.d/99-home-location-endpoint.conf")
 
 
 def run(command, *, check=True):
@@ -291,6 +299,113 @@ def command_verify(_args):
     raise SystemExit(1 if failures else 0)
 
 
+def _systemctl(*arguments):
+    subprocess.run(
+        ["systemctl", *arguments],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _remove_path(path):
+    try:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        print("warning: could not remove %s: %s" % (path, exc))
+
+
+def _delete_account(name):
+    for tool in ("userdel", "groupdel"):
+        subprocess.run(
+            [tool, name],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
+def _installed_port():
+    try:
+        for line in (ETC / "install.env").read_text(encoding="utf-8").splitlines():
+            if line.startswith("HLE_PORT="):
+                value = line.split("=", 1)[1].strip().strip("'\"")
+                return value if value.isdigit() else None
+    except OSError:
+        return None
+    return None
+
+
+def command_uninstall(args):
+    if os.geteuid() != 0:
+        raise SystemExit("hle uninstall must run as root")
+    # install_mode() reports "full" only when this host actually has the managed
+    # Xray node (node-uri.txt / recorded mode); a modifier-only host that merely
+    # runs the operator's own Xray reports "modifier-only", so full teardown
+    # never touches a proxy core this project did not install.
+    mode = install_mode()
+    full = mode == "full"
+    if not args.yes:
+        print("This permanently removes Home-Location-Endpoint from this host:")
+        print("  - stops and deletes the location interceptor service%s"
+              % (" and the managed Xray service" if full else ""))
+        print("  - deletes %s, %s, %s, and %s" % (ETC, APP, STATE, LOG))
+        if full:
+            print("  - deletes the managed Xray binary, its config, and the TCP sysctl file")
+        print("  - removes the scoped CA files on this host and the low-privilege account(s)")
+        if not full:
+            print("  - leaves your own proxy core, ports, and firewall untouched")
+        print("It does NOT delete the CA profile already installed on your iPhone.")
+        try:
+            answer = input("Type 'yes' to continue: ").strip()
+        except EOFError:
+            answer = ""
+        if answer != "yes":
+            raise SystemExit("uninstall aborted")
+    port = _installed_port() if full else None
+    with operation_lock():
+        _systemctl("disable", "--now", "home-location-endpoint.service")
+        if full:
+            _systemctl("disable", "--now", "xray.service")
+        _remove_path(SYSTEMD_DIR / "home-location-endpoint.service")
+        if full:
+            _remove_path(SYSTEMD_DIR / "xray.service")
+        _systemctl("daemon-reload")
+        _remove_path(HLE_SYMLINK)
+        _remove_path(LOGROTATE_FILE)
+        _remove_path(ETC)
+        _remove_path(APP)
+        _remove_path(STATE)
+        _remove_path(LOG)
+        if full:
+            _remove_path(SYSCTL_FILE)
+            _remove_path(XRAY_CONFIG_DIR)
+            _remove_path(XRAY_BIN)
+            if port and shutil.which("ufw"):
+                subprocess.run(
+                    ["ufw", "delete", "allow", "%s/tcp" % port],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        _delete_account("home-location")
+        if full:
+            _delete_account("xray")
+    print("Home-Location-Endpoint removed.")
+    print(
+        "Reminder: delete the CA profile from the iPhone "
+        "(Settings > General > VPN & Device Management) and remove the client node%s."
+        % (" / VLESS URI" if full else " and the location routing you added")
+    )
+    if full:
+        print("TCP sysctl tuning stays live until the next reboot.")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(prog="hle")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -305,6 +420,13 @@ def parse_args():
     profile.set_defaults(func=command_profile)
     verify = subparsers.add_parser("verify", help="run local integrity checks")
     verify.set_defaults(func=command_verify)
+    uninstall = subparsers.add_parser(
+        "uninstall", help="stop services and remove every managed file, account, and CA"
+    )
+    uninstall.add_argument(
+        "--yes", action="store_true", help="skip the confirmation prompt"
+    )
+    uninstall.set_defaults(func=command_uninstall)
     return parser.parse_args()
 
 

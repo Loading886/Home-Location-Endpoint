@@ -82,6 +82,25 @@ class WifiTileRewriteTests(unittest.TestCase):
         self.assertAlmostEqual(points[1][0] - points[0][0], 0.002, places=6)
         self.assertNotEqual(points[0], points[1])
 
+    def test_wifi_tile_no_fix_marker_is_preserved_not_translated(self):
+        # A tile mixing a real AP with a (-180,-180) no-fix marker must not raise
+        # (translate_coordinate would reject the marker) and must not fabricate a
+        # fix for it: only the valid AP is translated, the marker is left as-is.
+        payload = build_tile([(34.0, -118.0), (-180.0, -180.0)])
+        replacement, count, anchor = wx.translate_wifi_tile(payload, 40.0, -74.0)
+        points = wx.decode_locations(replacement)
+        self.assertEqual(count, 1)
+        self.assertTrue(35.0 <= points[0][0] <= 45.0)
+        self.assertEqual(points[1], (-180.0, -180.0))
+
+    def test_wifi_tile_out_of_range_marker_is_not_fabricated(self):
+        payload = build_tile([(33.9, -118.0), (34.1, -118.0), (-95.0, -118.05)])
+        replacement, count, _anchor = wx.translate_wifi_tile(payload, 40.0, -74.0)
+        points = wx.decode_locations(replacement)
+        self.assertEqual(count, 2)
+        self.assertAlmostEqual(points[2][0], -95.0, places=6)
+        self.assertAlmostEqual(points[2][1], -118.05, places=6)
+
 
 def build_tile(points):
     devices = bytearray()
