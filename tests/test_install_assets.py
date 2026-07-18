@@ -81,6 +81,20 @@ class InstallAssetTests(unittest.TestCase):
         self.assertEqual(install_calls, ["l", "l", "l"])
         self.assertNotIn("NEEDRESTART_MODE=a", installer)
 
+    def test_interactive_install_and_result_are_bilingual(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        for message in (
+            "下载中……请稍等",
+            "选择安装模式：",
+            "新手模式：安装完整代理节点和定位修改器",
+            "高手模式：仅安装定位修改器",
+            "完整模式安装完成。",
+            "仅定位修改器模式安装完成。",
+            "Next / 下一步:",
+            "安装器未修改 SSH。",
+        ):
+            self.assertIn(message, installer)
+
     def test_service_and_log_limits_are_present(self):
         service = (ROOT / "systemd" / "home-location-endpoint.service").read_text(
             encoding="utf-8"

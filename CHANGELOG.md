@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 - 2026-07-18
+
+- Add concise Chinese guidance alongside English for source download, interactive
+  mode selection, and the final full/modifier-only installation summaries. Node
+  URIs, paths, fingerprints, commands, and machine-readable behavior are unchanged.
+
 ## 0.1.2 - 2026-07-18
 
 - Run Ubuntu/Debian package installation with `needrestart` in list-only mode.
