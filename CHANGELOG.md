@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - 2026-07-18
+
+- Run Ubuntu/Debian package installation with `needrestart` in list-only mode.
+  Ubuntu 24.04 otherwise automatically restarts unrelated daemons, which can
+  bounce `systemd-networkd`, SSH, or other host services during a remote endpoint
+  install. Pending host-level restarts are now left to the operator.
+
 ## 0.1.1 - 2026-07-18
 
 - Wait for the apt/dpkg lock instead of failing when a background package

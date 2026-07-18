@@ -73,6 +73,14 @@ class InstallAssetTests(unittest.TestCase):
         first_apt = installer.index("apt-get", packages)
         self.assertLess(wait, first_apt)
 
+    def test_apt_never_auto_restarts_unrelated_services(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        install_calls = re.findall(
+            r"DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=([a-z])", installer
+        )
+        self.assertEqual(install_calls, ["l", "l", "l"])
+        self.assertNotIn("NEEDRESTART_MODE=a", installer)
+
     def test_service_and_log_limits_are_present(self):
         service = (ROOT / "systemd" / "home-location-endpoint.service").read_text(
             encoding="utf-8"

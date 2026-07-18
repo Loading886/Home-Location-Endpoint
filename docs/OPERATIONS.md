@@ -8,6 +8,8 @@
   不建议在同时承载大量代理连接时忽略。
 - 确认落地机能访问 GitHub、IPWHOIS、Nominatim、候选 REALITY target 和 Apple 源站。
 - 云安全组、NAT 和上游防火墙由操作者负责。安装器只会在 UFW 已经处于 active 时加入 TCP 端口。
+- 安装器将 `needrestart` 设为仅列出待重启服务，不会在远程安装途中自动重启 networkd、sshd
+  或其他无关系统服务。系统更新留下的待重启项应在维护窗口人工处理或通过重启主机完成。
 
 ## NAT、双 IP 与 Realm
 
@@ -56,11 +58,11 @@ sysctl 调优在下次重启前仍然生效。卸载不会删除已装到 iPhone
 不要用未经审查的 `rm -rf` 清理混合环境；如果安装被强制中断留下半套状态，先按下文
 “事务与失败边界”排查后再决定用 `hle uninstall` 或手动恢复备份。
 
-例如固定安装 `v0.1.1`：
+例如固定安装 `v0.1.2`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.1/install.sh \
-  | sudo env HLE_VERSION=v0.1.1 bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.2/install.sh \
+  | sudo env HLE_VERSION=v0.1.2 bash
 ```
 
 ## 事务与失败边界

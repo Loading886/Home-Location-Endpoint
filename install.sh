@@ -276,7 +276,11 @@ bootstrap_if_needed() {
     note "Downloading ${PROJECT} ${BOOTSTRAP_VERSION}"
     wait_for_apt_lock
     apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 update -qq
-    DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+    # Ubuntu 24.04 defaults needrestart to automatically restarting every
+    # affected daemon. A remote endpoint installer must not bounce unrelated
+    # network/login services; report pending restarts and leave that decision
+    # to the operator.
+    DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l \
         apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq ca-certificates curl tar util-linux
     temporary="$(mktemp -d)"
     register_temp_dir "${temporary}"
@@ -603,11 +607,11 @@ install_packages() {
     note "Installing required packages"
     wait_for_apt_lock
     apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 update -qq
-    DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+    DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l \
         apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq \
         ca-certificates curl logrotate openssl python3 util-linux
     if [[ "${MODE}" == "full" ]]; then
-        DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+        DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l \
             apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq \
             iproute2 kmod procps unzip uuid-runtime
     fi
