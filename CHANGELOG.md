@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5 - 2026-07-18
+
+- Fix the installed `/usr/local/sbin/hle` failing at startup because v0.1.4
+  imported a package module that is not present in the intentionally standalone
+  `/opt/home-location-endpoint/cli.py` layout. Profile host validation is again
+  self-contained, with an isolated-process regression test matching deployment.
+
 ## 0.1.4 - 2026-07-18
 
 - Add `hle profile serve`, a tokenized one-download HTTP handoff for the iOS CA

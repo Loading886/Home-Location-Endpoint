@@ -10,6 +10,7 @@ import ipaddress
 import json
 import os
 import plistlib
+import re
 import secrets
 import shutil
 import socket
@@ -19,9 +20,6 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
-
-from home_location_endpoint.render import validate_host
-
 
 ETC = Path(os.environ.get("HLE_ETC", "/etc/home-location-endpoint"))
 APP = Path(os.environ.get("HLE_APP", "/opt/home-location-endpoint"))
@@ -37,6 +35,10 @@ SYSCTL_FILE = Path("/etc/sysctl.d/99-home-location-endpoint.conf")
 PROFILE_NAME = "Home-Location-Endpoint-CA.mobileconfig"
 PROFILE_PORT = 18080
 PROFILE_TIMEOUT_MINUTES = 100
+PROFILE_HOST_RE = re.compile(
+    r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"
+)
 
 
 def run(command, *, check=True):
@@ -136,6 +138,17 @@ class _IPv6HTTPServer(http.server.HTTPServer):
     address_family = socket.AF_INET6
 
 
+def _validate_profile_host(value):
+    value = value.strip().rstrip(".")
+    try:
+        return ipaddress.ip_address(value).compressed
+    except ValueError:
+        pass
+    if not PROFILE_HOST_RE.fullmatch(value):
+        raise ValueError("invalid hostname: %s" % value)
+    return value.lower()
+
+
 def _profile_download_host(explicit_host):
     host = explicit_host or _install_inventory().get("HLE_SERVER", "")
     host = host.strip().strip("[]")
@@ -143,7 +156,7 @@ def _profile_download_host(explicit_host):
         raise SystemExit(
             "no client-reachable address is recorded; use --host <address>"
         )
-    host = validate_host(host, allow_ip=True)
+    host = _validate_profile_host(host)
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
