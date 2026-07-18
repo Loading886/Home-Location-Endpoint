@@ -257,7 +257,9 @@ bootstrap_if_needed() {
         register_temp_dir "${HLE_BOOTSTRAP_TEMP}"
         unset HLE_BOOTSTRAP_TEMP
     fi
-    script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+    if ! script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"; then
+        script_dir=""
+    fi
     if [[ -f "${script_dir}/src/home_location_endpoint/interceptor.py" ]]; then
         SOURCE_DIR="${script_dir}"
         return
