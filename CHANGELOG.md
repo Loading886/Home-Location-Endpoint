@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.9 - 2026-07-18
+
+- Add persistent `hle pause` and `hle resume` controls. Paused endpoints keep
+  proxy traffic and scoped Apple requests working but return the original Apple
+  location responses without coordinate rewriting. State changes apply to new
+  requests without restarting Xray or the interceptor and survive reboots and
+  installer upgrades.
+
 ## 0.1.8 - 2026-07-18
 
 - Replace the randomized REALITY SNI pool with the fixed

@@ -1,10 +1,79 @@
 import io
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from home_location_endpoint import interceptor
 
 
 class InterceptorTests(unittest.TestCase):
+    def test_modifier_state_defaults_active_and_accepts_pause(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "modifier.state"
+            with mock.patch.object(interceptor, "MODIFIER_STATE", str(state)):
+                self.assertTrue(interceptor.modification_is_active())
+                state.write_text("paused\n", encoding="ascii")
+                self.assertFalse(interceptor.modification_is_active())
+                state.write_text("active\n", encoding="ascii")
+                self.assertTrue(interceptor.modification_is_active())
+                state.write_text("unexpected\n", encoding="ascii")
+                with self.assertRaisesRegex(RuntimeError, "invalid modifier state"):
+                    interceptor.modification_is_active()
+
+    def test_paused_modifier_preserves_the_requested_wifi_tile_origin(self):
+        host = "gspe85-cn-ssl.ls.apple.com"
+        self.assertEqual(
+            interceptor.effective_origin_host(
+                host, "GET", "/wifi_request_tile", False
+            ),
+            host,
+        )
+        self.assertEqual(
+            interceptor.effective_origin_host(
+                host, "GET", "/wifi_request_tile", True
+            ),
+            interceptor.WIFI_TILE_GLOBAL_HOST,
+        )
+
+    def test_paused_request_returns_the_unmodified_upstream_response(self):
+        conn = mock.Mock()
+        tls = mock.Mock()
+        tls.makefile.return_value = io.BytesIO(
+            b"POST /clls/wloc HTTP/1.1\r\n"
+            b"Host: gs-loc.apple.com\r\n"
+            b"Content-Length: 0\r\n\r\n"
+        )
+        context = mock.Mock()
+        context.wrap_socket.return_value = tls
+        upstream_body = b"real-location-response"
+        with (
+            mock.patch.object(interceptor, "modification_is_active", return_value=False),
+            mock.patch.object(
+                interceptor,
+                "fetch_upstream",
+                return_value=(
+                    "HTTP/1.1 200 OK",
+                    ["Content-Type: application/octet-stream"],
+                    {"content-type": "application/octet-stream"},
+                    upstream_body,
+                ),
+            ),
+            mock.patch.object(
+                interceptor, "active_target", side_effect=AssertionError("rewrote")
+            ),
+            mock.patch.object(interceptor, "log") as log,
+        ):
+            interceptor.handle(conn, ("127.0.0.1", 12345), context)
+
+        response = tls.sendall.call_args.args[0]
+        self.assertTrue(response.endswith(upstream_body))
+        self.assertIn(b"Content-Length: 22", response)
+        self.assertTrue(any(
+            "MODIFIER_PAUSED_PASSTHRU" in call.args[0]
+            for call in log.call_args_list
+        ))
+
     def test_host_scope_is_narrow(self):
         allowed = [
             "gs-loc.apple.com",

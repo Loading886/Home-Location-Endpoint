@@ -55,6 +55,9 @@ LEAF_CRT = os.environ.get("GSLOC_LEAF_CRT", "/etc/home-location-endpoint/leaf.cr
 LEAF_KEY = os.environ.get("GSLOC_LEAF_KEY", "/etc/home-location-endpoint/leaf.key")
 PRESETS = os.environ.get("GSLOC_PRESETS", "/etc/home-location-endpoint/location.json")
 JITTER_SEED = os.environ.get("GSLOC_JITTER_SEED", "/etc/home-location-endpoint/jitter.seed")
+MODIFIER_STATE = os.environ.get(
+    "GSLOC_MODIFIER_STATE", "/var/lib/home-location-endpoint/modifier.state"
+)
 LOG = os.environ.get("GSLOC_LOG", "/var/log/home-location-endpoint/interceptor.log")
 UPSTREAM_TIMEOUT = _bounded_env_float("GSLOC_UPSTREAM_TIMEOUT", 10, 1, 120)
 UPSTREAM_ATTEMPTS = _bounded_env_int("GSLOC_UPSTREAM_ATTEMPTS", 2, 1, 5)
@@ -178,6 +181,28 @@ def active_target(now=None):
             timestamp=time.time() if now is None else now,
         )
     return lat, lon, accuracy
+
+
+def modification_is_active():
+    """Return the persistent rewrite state; old installations default active."""
+    try:
+        with open(MODIFIER_STATE, "r", encoding="ascii") as handle:
+            value = handle.read(16).strip()
+            if handle.read(1):
+                raise RuntimeError("modifier state is too large")
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        raise RuntimeError("modifier state unreadable: %r" % (exc,)) from exc
+    if value not in {"active", "paused"}:
+        raise RuntimeError("invalid modifier state: %r" % value)
+    return value == "active"
+
+
+def effective_origin_host(upstream, method, path, modifier_active):
+    if not modifier_active:
+        return upstream
+    return select_origin_host(upstream, method, path)
 
 
 def is_assist_host(host):
@@ -534,13 +559,22 @@ def handle(conn, addr, ctx):
         # no reliance on SNI, so a single shared TLS context stays thread-safe.
         upstream = normalize_location_host(req_headers.get("host", ""))
 
-        origin = select_origin_host(upstream, method, path)
+        modifier_active = modification_is_active()
+        origin = effective_origin_host(upstream, method, path, modifier_active)
         if origin != upstream:
             log("ORIGIN_SUBSTITUTE requested=%s origin=%s path=%s"
                 % (upstream, origin, operational_path(path)))
         status_line, up_header_lines, up_headers, resp_body = fetch_upstream(
             origin, request_line, header_lines, body
         )
+        if not modifier_active:
+            tls.sendall(build_response(
+                status_line, up_header_lines, up_headers, resp_body
+            ))
+            log("MODIFIER_PAUSED_PASSTHRU host=%s path=%s code=%s bytes=%d"
+                % (upstream, operational_path(path),
+                   status_line.split(" ")[1:2], len(resp_body)))
+            return
         assist = is_assist_host(upstream)
         if assist:
             tile_state = "present" if req_headers.get("x-tilekey") else "none"

@@ -15,6 +15,47 @@ from home_location_endpoint import cli, render
 
 
 class CliTests(unittest.TestCase):
+    def test_pause_and_resume_are_registered_commands(self):
+        with mock.patch("sys.argv", ["hle", "pause"]):
+            pause = cli.parse_args()
+        with mock.patch("sys.argv", ["hle", "resume"]):
+            resume = cli.parse_args()
+        self.assertIs(pause.func, cli.command_pause)
+        self.assertIs(resume.func, cli.command_resume)
+
+    def test_pause_requires_root(self):
+        with mock.patch.object(cli.os, "geteuid", return_value=1000, create=True):
+            with self.assertRaisesRegex(SystemExit, "must run as root"):
+                cli.command_pause(None)
+
+    def test_pause_persists_without_restarting_services(self):
+        output = io.StringIO()
+        with (
+            mock.patch.object(cli.os, "geteuid", return_value=0, create=True),
+            mock.patch.object(cli, "operation_lock", return_value=nullcontext()),
+            mock.patch.object(cli, "modifier_state", return_value="active"),
+            mock.patch.object(cli, "_write_modifier_state") as write_state,
+            redirect_stdout(output),
+        ):
+            cli.command_pause(None)
+        write_state.assert_called_once_with("paused")
+        self.assertIn("代理流量保持正常", output.getvalue())
+
+    def test_modifier_state_defaults_active_and_rejects_corruption(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            with mock.patch.object(cli, "STATE", state):
+                self.assertEqual(cli.modifier_state(), "active")
+                (state / cli.MODIFIER_STATE_NAME).write_text(
+                    "paused\n", encoding="ascii"
+                )
+                self.assertEqual(cli.modifier_state(), "paused")
+                (state / cli.MODIFIER_STATE_NAME).write_text(
+                    "broken\n", encoding="ascii"
+                )
+                with self.assertRaisesRegex(ValueError, "invalid modifier state"):
+                    cli.modifier_state()
+
     def test_uninstall_requires_root(self):
         with mock.patch.object(cli.os, "geteuid", return_value=1000, create=True):
             with self.assertRaisesRegex(SystemExit, "must run as root"):
