@@ -78,7 +78,8 @@ class InstallAssetTests(unittest.TestCase):
         install_calls = re.findall(
             r"DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=([a-z])", installer
         )
-        self.assertEqual(install_calls, ["l", "l", "l"])
+        self.assertGreaterEqual(len(install_calls), 3)
+        self.assertEqual(set(install_calls), {"l"})
         self.assertNotIn("NEEDRESTART_MODE=a", installer)
 
     def test_interactive_install_and_result_are_bilingual(self):
@@ -92,8 +93,15 @@ class InstallAssetTests(unittest.TestCase):
             "仅定位修改器模式安装完成。",
             "Next / 下一步:",
             "安装器未修改 SSH。",
+            "sudo hle profile serve",
         ):
             self.assertIn(message, installer)
+
+    def test_qrencode_is_installed_for_profile_handoff(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("apt-cache show qrencode", installer)
+        self.assertIn("optional qrencode installation failed", installer)
+        self.assertIn("profile download URLs will still work", installer)
 
     def test_service_and_log_limits_are_present(self):
         service = (ROOT / "systemd" / "home-location-endpoint.service").read_text(

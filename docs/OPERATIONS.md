@@ -58,11 +58,11 @@ sysctl 调优在下次重启前仍然生效。卸载不会删除已装到 iPhone
 不要用未经审查的 `rm -rf` 清理混合环境；如果安装被强制中断留下半套状态，先按下文
 “事务与失败边界”排查后再决定用 `hle uninstall` 或手动恢复备份。
 
-例如固定安装 `v0.1.3`：
+例如固定安装 `v0.1.4`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.3/install.sh \
-  | sudo env HLE_VERSION=v0.1.3 bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.1.4/install.sh \
+  | sudo env HLE_VERSION=v0.1.4 bash
 ```
 
 ## 事务与失败边界
@@ -90,10 +90,28 @@ sudo find /etc/home-location-endpoint /opt/home-location-endpoint \
 ```bash
 sudo hle verify
 sudo hle status
+sudo hle profile serve
 sudo systemctl status home-location-endpoint xray --no-pager
 sudo journalctl -u home-location-endpoint -u xray --since '30 minutes ago' --no-pager
 sudo ss -lntup
 ```
+
+### 临时下载 CA 描述文件
+
+```bash
+sudo hle profile serve
+```
+
+该命令只提供带随机令牌的 `.mobileconfig`，默认监听 TCP `18080`，有效 100 分钟，并在首次成功
+下载后关闭。终端支持时会显示二维码。它使用临时 HTTP，因此必须通过 SSH 终端显示的 SHA-256
+核对 CA；不会自动修改 UFW、云安全组、NAT 或 Realm。入口地址无法自动判断时使用：
+
+```bash
+sudo hle profile serve --host PHONE_REACHABLE_IP_OR_HOST
+```
+
+可用 `--port 0` 选择随机空闲端口，或用 `--timeout-minutes 100` 调整有效期；随机端口仍需能够
+从手机到达。下载过程中按 `Ctrl+C` 会立即关闭服务。
 
 仅定位模式没有 `xray.service`。`hle verify` 检查 Xray/示例 JSON、证书链与有效期、叶证书 key、
 描述文件内 CA、坐标、受管文件权限、回环监听和服务状态。

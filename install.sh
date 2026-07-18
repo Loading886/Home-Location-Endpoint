@@ -615,6 +615,15 @@ install_packages() {
     DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l \
         apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq \
         ca-certificates curl logrotate openssl python3 util-linux
+    if apt-cache show qrencode >/dev/null 2>&1; then
+        if ! DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l \
+            apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq \
+            qrencode; then
+            printf 'WARNING: optional qrencode installation failed; profile download URLs will still work.\n' >&2
+        fi
+    else
+        note "Optional qrencode package is unavailable; profile download URLs will still work"
+    fi
     if [[ "${MODE}" == "full" ]]; then
         DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l \
             apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq \
@@ -1101,6 +1110,7 @@ $(cat "${ETC_DIR}/node-uri.txt")
 
 iOS CA profile / iOS CA 描述文件: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
 CA SHA-256 / CA SHA-256 指纹: ${fingerprint}
+Temporary phone download / 手机临时下载: sudo hle profile serve
 EOF
         if [[ "${SERVER_EXPLICIT}" -eq 0 ]]; then
             cat <<EOF
@@ -1145,6 +1155,7 @@ ${PROJECT} 仅定位修改器模式安装完成。
 Random location city / 随机定位城市: ${city}
 iOS CA profile / iOS CA 描述文件: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
 CA SHA-256 / CA SHA-256 指纹: ${fingerprint}
+Temporary phone download / 手机临时下载: sudo hle profile serve --host <手机可访问地址>
 Loopback interceptor / 本机定位拦截器: 127.0.0.1:10451
 Xray integration example / Xray 接入示例: ${ETC_DIR}/xray-location-routing.example.json
 

@@ -1,7 +1,12 @@
 import io
 import json
+import socket
 import tempfile
+import threading
+import time
 import unittest
+import urllib.error
+import urllib.request
 from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -73,6 +78,81 @@ class CliTests(unittest.TestCase):
             with mock.patch.object(cli, "ETC", Path(temporary)):
                 with self.assertRaisesRegex(SystemExit, "CA profile is missing"):
                     cli.command_profile(None)
+
+    def test_profile_serve_is_registered_with_100_minute_default(self):
+        with mock.patch("sys.argv", ["hle", "profile", "serve"]):
+            args = cli.parse_args()
+        self.assertIs(args.func, cli.command_profile_serve)
+        self.assertEqual(args.port, 18080)
+        self.assertEqual(args.timeout_minutes, 100)
+
+    def test_profile_serve_requires_a_client_reachable_host(self):
+        with mock.patch.object(cli, "_install_inventory", return_value={}):
+            with self.assertRaisesRegex(SystemExit, "use --host"):
+                cli._profile_download_host(None)
+
+    def test_profile_serve_downloads_once_with_apple_mime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            etc = Path(temporary)
+            ca_der = b"temporary-download-test-ca"
+            profile_bytes = render.build_ca_profile(ca_der)
+            (etc / "ca.der").write_bytes(ca_der)
+            (etc / cli.PROFILE_NAME).write_bytes(profile_bytes)
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
+                port = probe.getsockname()[1]
+            args = mock.Mock(
+                host="127.0.0.1",
+                bind="127.0.0.1",
+                port=port,
+                timeout_minutes=1,
+                no_qr=True,
+            )
+            output = io.StringIO()
+            token = "fixed-download-token"
+            with (
+                mock.patch.object(cli, "ETC", etc),
+                mock.patch.object(cli.secrets, "token_urlsafe", return_value=token),
+                redirect_stdout(output),
+            ):
+                worker = threading.Thread(
+                    target=cli.command_profile_serve, args=(args,), daemon=True
+                )
+                worker.start()
+                base = "http://127.0.0.1:%d" % port
+                deadline = time.monotonic() + 3
+                while True:
+                    try:
+                        urllib.request.urlopen(base + "/wrong", timeout=0.2)
+                    except urllib.error.HTTPError as exc:
+                        try:
+                            self.assertEqual(exc.code, 404)
+                        finally:
+                            exc.close()
+                        break
+                    except urllib.error.URLError:
+                        if time.monotonic() >= deadline:
+                            self.fail("temporary profile server did not start")
+                        time.sleep(0.02)
+
+                with urllib.request.urlopen(
+                    base + "/%s/%s" % (token, cli.PROFILE_NAME), timeout=1
+                ) as response:
+                    self.assertEqual(response.read(), profile_bytes)
+                    self.assertEqual(
+                        response.headers.get_content_type(),
+                        "application/x-apple-aspen-config",
+                    )
+                    self.assertIn(
+                        cli.PROFILE_NAME,
+                        response.headers["Content-Disposition"],
+                    )
+                    self.assertEqual(response.headers["Cache-Control"], "no-store")
+                worker.join(timeout=3)
+
+            self.assertFalse(worker.is_alive())
+            self.assertIn("Profile downloaded; server closed.", output.getvalue())
 
     def test_profile_and_location_integrity_helpers(self):
         with tempfile.TemporaryDirectory() as temporary:

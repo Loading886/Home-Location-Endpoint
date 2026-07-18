@@ -4,15 +4,23 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import http.server
+import ipaddress
 import json
 import os
 import plistlib
+import secrets
 import shutil
+import socket
 import stat
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
+
+from home_location_endpoint.render import validate_host
 
 
 ETC = Path(os.environ.get("HLE_ETC", "/etc/home-location-endpoint"))
@@ -26,6 +34,9 @@ HLE_SYMLINK = Path("/usr/local/sbin/hle")
 SYSTEMD_DIR = Path("/etc/systemd/system")
 LOGROTATE_FILE = Path("/etc/logrotate.d/home-location-endpoint")
 SYSCTL_FILE = Path("/etc/sysctl.d/99-home-location-endpoint.conf")
+PROFILE_NAME = "Home-Location-Endpoint-CA.mobileconfig"
+PROFILE_PORT = 18080
+PROFILE_TIMEOUT_MINUTES = 100
 
 
 def run(command, *, check=True):
@@ -115,10 +126,157 @@ def command_show_link(_args):
 
 
 def command_profile(_args):
-    path = ETC / "Home-Location-Endpoint-CA.mobileconfig"
+    path = ETC / PROFILE_NAME
     if not path.is_file():
         raise SystemExit("CA profile is missing: %s" % path)
     print(path)
+
+
+class _IPv6HTTPServer(http.server.HTTPServer):
+    address_family = socket.AF_INET6
+
+
+def _profile_download_host(explicit_host):
+    host = explicit_host or _install_inventory().get("HLE_SERVER", "")
+    host = host.strip().strip("[]")
+    if not host:
+        raise SystemExit(
+            "no client-reachable address is recorded; use --host <address>"
+        )
+    host = validate_host(host, allow_ip=True)
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if address.is_unspecified:
+        raise SystemExit("--host must be an address clients can reach")
+    return address.compressed
+
+
+def _profile_bind_address(value):
+    try:
+        return ipaddress.ip_address(value.strip().strip("[]")).compressed
+    except ValueError as exc:
+        raise SystemExit("--bind must be an IPv4 or IPv6 address") from exc
+
+
+def _profile_url_host(host):
+    try:
+        return "[%s]" % ipaddress.IPv6Address(host).compressed
+    except ipaddress.AddressValueError:
+        return host
+
+
+def _profile_fingerprint(ca_der):
+    digest = hashlib.sha256(ca_der).hexdigest().upper()
+    return ":".join(digest[index:index + 2] for index in range(0, len(digest), 2))
+
+
+def command_profile_serve(args):
+    path = ETC / PROFILE_NAME
+    if not path.is_file():
+        raise SystemExit("CA profile is missing: %s" % path)
+    if not profile_matches_ca():
+        raise SystemExit("CA profile does not match the installed CA")
+    if not 0 <= args.port <= 65535:
+        raise SystemExit("--port must be between 0 and 65535")
+    if not 1 <= args.timeout_minutes <= 1440:
+        raise SystemExit("--timeout-minutes must be between 1 and 1440")
+
+    host = _profile_download_host(args.host)
+    try:
+        host_is_ipv6 = isinstance(ipaddress.ip_address(host), ipaddress.IPv6Address)
+    except ValueError:
+        host_is_ipv6 = False
+    bind = _profile_bind_address(
+        args.bind or ("::" if host_is_ipv6 else "0.0.0.0")
+    )
+    profile_bytes = path.read_bytes()
+    ca_der = (ETC / "ca.der").read_bytes()
+    token = secrets.token_urlsafe(24)
+    download_path = "/%s/%s" % (token, PROFILE_NAME)
+    state = {"downloaded": False}
+
+    class ProfileHandler(http.server.BaseHTTPRequestHandler):
+        server_version = "Home-Location-Endpoint"
+        sys_version = ""
+
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(15)
+
+        def log_message(self, _format, *_arguments):
+            return
+
+        def _headers(self, status):
+            self.send_response(status)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            if status == 200:
+                self.send_header(
+                    "Content-Type", "application/x-apple-aspen-config"
+                )
+                self.send_header(
+                    "Content-Disposition", 'attachment; filename="%s"' % PROFILE_NAME
+                )
+                self.send_header("Content-Length", str(len(profile_bytes)))
+            else:
+                self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_HEAD(self):
+            self._headers(200 if self.path == download_path else 404)
+
+        def do_GET(self):
+            if self.path != download_path or state["downloaded"]:
+                self._headers(404)
+                return
+            self._headers(200)
+            try:
+                self.wfile.write(profile_bytes)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, socket.timeout):
+                return
+            state["downloaded"] = True
+
+    server_class = _IPv6HTTPServer if ":" in bind else http.server.HTTPServer
+    with server_class((bind, args.port), ProfileHandler) as server:
+        port = server.server_address[1]
+        url = "http://%s:%d%s" % (_profile_url_host(host), port, download_path)
+        print("Temporary CA profile download / 临时 CA 描述文件下载")
+        print("URL / 下载地址: %s" % url)
+        print("Valid for / 有效时间: %d minutes / 分钟" % args.timeout_minutes)
+        print("Downloads / 下载次数: 1")
+        print("CA SHA-256 / CA 指纹: %s" % _profile_fingerprint(ca_der))
+        print(
+            "Security / 安全提示: this is temporary HTTP; verify the fingerprint "
+            "before trusting the CA. / 这是临时 HTTP，请在信任 CA 前核对指纹。"
+        )
+        print(
+            "Firewall / 防火墙: TCP %d must temporarily reach this host. "
+            "/ 请临时确保 TCP %d 可以到达本机。" % (port, port)
+        )
+        if not args.no_qr and sys.stdout.isatty() and shutil.which("qrencode"):
+            print("Scan with iPhone Camera / 使用 iPhone 相机扫码:")
+            subprocess.run(["qrencode", "-t", "ANSIUTF8", url], check=False)
+        print("Waiting for one successful download... / 正在等待一次成功下载……")
+
+        deadline = time.monotonic() + args.timeout_minutes * 60
+        try:
+            while not state["downloaded"]:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                server.timeout = min(1.0, remaining)
+                server.handle_request()
+        except KeyboardInterrupt:
+            print("Download server stopped. / 下载服务已停止。")
+            return
+
+    if state["downloaded"]:
+        print("Profile downloaded; server closed. / 描述文件已下载，服务已关闭。")
+    else:
+        print("Download link expired; server closed. / 下载链接已过期，服务已关闭。")
 
 
 def location_is_valid():
@@ -545,8 +703,32 @@ def parse_args():
     relocate.set_defaults(func=command_relocate)
     show_link = subparsers.add_parser("show-link", help="print the VLESS URI")
     show_link.set_defaults(func=command_show_link)
-    profile = subparsers.add_parser("profile", help="print the CA profile path")
+    profile = subparsers.add_parser(
+        "profile", help="show or temporarily serve the CA profile"
+    )
     profile.set_defaults(func=command_profile)
+    profile_actions = profile.add_subparsers(dest="profile_action")
+    profile_serve = profile_actions.add_parser(
+        "serve", help="serve a one-download temporary profile URL"
+    )
+    profile_serve.add_argument(
+        "--host", help="client-reachable address shown in the download URL"
+    )
+    profile_serve.add_argument(
+        "--bind", help="local IPv4/IPv6 bind address (default follows --host)"
+    )
+    profile_serve.add_argument(
+        "--port", type=int, default=PROFILE_PORT,
+        help="temporary HTTP port; 0 chooses a random free port",
+    )
+    profile_serve.add_argument(
+        "--timeout-minutes", type=int, default=PROFILE_TIMEOUT_MINUTES,
+        help="link lifetime in minutes (default: 100)",
+    )
+    profile_serve.add_argument(
+        "--no-qr", action="store_true", help="do not print a terminal QR code"
+    )
+    profile_serve.set_defaults(func=command_profile_serve)
     verify = subparsers.add_parser("verify", help="run local integrity checks")
     verify.set_defaults(func=command_verify)
     uninstall = subparsers.add_parser(
