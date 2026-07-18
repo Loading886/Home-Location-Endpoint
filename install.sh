@@ -274,6 +274,7 @@ bootstrap_if_needed() {
     fi
 
     note "Downloading ${PROJECT} ${BOOTSTRAP_VERSION}"
+    printf '下载中……请稍等\n'
     wait_for_apt_lock
     apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 update -qq
     # Ubuntu 24.04 defaults needrestart to automatically restarting every
@@ -421,8 +422,12 @@ select_install_mode() {
 Choose an installation mode:
   1) Full proxy endpoint + location modifier (recommended)
   2) Location modifier only (advanced; integrate your own proxy)
+
+选择安装模式：
+  1) 新手模式：安装完整代理节点和定位修改器（推荐）
+  2) 高手模式：仅安装定位修改器，需要自行配置代理接入
 EOF
-            printf 'Selection [1]: ' >&3
+            printf 'Selection / 请选择 [1]: ' >&3
             read -r choice <&3 || true
             exec 3>&-
             case "${choice:-1}" in
@@ -1086,15 +1091,16 @@ show_result() {
         cat <<EOF
 
 ${PROJECT} is ready in full mode.
+${PROJECT} 完整模式安装完成。
 
-Random location city: ${city}
-REALITY SNI: ${REALITY_SNI}
-Server address in URI: ${server_label}
-VLESS URI:
+Random location city / 随机定位城市: ${city}
+REALITY SNI / REALITY 伪装域名: ${REALITY_SNI}
+Server address in URI / 节点链接服务器地址: ${server_label}
+VLESS URI / VLESS 节点链接:
 $(cat "${ETC_DIR}/node-uri.txt")
 
-iOS CA profile: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
-CA SHA-256: ${fingerprint}
+iOS CA profile / iOS CA 描述文件: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
+CA SHA-256 / CA SHA-256 指纹: ${fingerprint}
 EOF
         if [[ "${SERVER_EXPLICIT}" -eq 0 ]]; then
             cat <<EOF
@@ -1102,42 +1108,60 @@ EOF
 IMPORTANT: the URI address above is this host's auto-detected egress IP. If clients
 reach this host through a Realm front, NAT, or a different ingress IP, that address
 will not connect -- reinstall with --server <ingress-address> and keep the port identical.
+
+重要：上方节点链接使用的是本机自动探测到的出口 IP。如果客户端通过 Realm 前置机、NAT
+或其他入口 IP 接入，该地址将无法连接；请使用 --server <入口地址> 重新安装，并保持端口一致。
 EOF
         fi
         cat <<EOF
 
 If this landing server is behind one or more relays, use Realm pure TCP forwarding.
 Keep UUID, flow, SNI, REALITY public key, and short ID unchanged at every relay.
+如果落地机前面还有一级或多级中转，请使用 Realm 纯 TCP 转发。
+每一级中转都必须保持 UUID、flow、SNI、REALITY 公钥和 short ID 不变。
 
-Next:
+Next / 下一步:
   1. Copy the profile to the iPhone, install it, then enable full trust for this CA.
+     将描述文件传到 iPhone 安装，然后为该 CA 开启完全信任。
   2. Import the VLESS URI into a full-tunnel client and connect through this endpoint.
+     将 VLESS 节点链接导入全局代理客户端，并通过本节点连接。
   3. Run 'sudo hle verify' and 'sudo hle status' for local checks.
+     运行 'sudo hle verify' 和 'sudo hle status' 检查本机状态。
   4. Run 'sudo hle relocate' whenever you want another random point in the same IP city.
+     需要在同一出口城市内更换随机坐标时，运行 'sudo hle relocate'。
 
 Remove everything later with: sudo hle uninstall
+以后如需完整卸载，运行：sudo hle uninstall
 SSH was not changed. If a provider firewall exists, allow TCP ${PORT} there.
+安装器未修改 SSH。如服务商另有云防火墙，请在其中放行 TCP ${PORT}。
 EOF
         return
     fi
     cat <<EOF
 
 ${PROJECT} is ready in modifier-only mode.
+${PROJECT} 仅定位修改器模式安装完成。
 
-Random location city: ${city}
-iOS CA profile: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
-CA SHA-256: ${fingerprint}
-Loopback interceptor: 127.0.0.1:10451
-Xray integration example: ${ETC_DIR}/xray-location-routing.example.json
+Random location city / 随机定位城市: ${city}
+iOS CA profile / iOS CA 描述文件: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
+CA SHA-256 / CA SHA-256 指纹: ${fingerprint}
+Loopback interceptor / 本机定位拦截器: 127.0.0.1:10451
+Xray integration example / Xray 接入示例: ${ETC_DIR}/xray-location-routing.example.json
 
-Next:
+Next / 下一步:
   1. Copy the profile to the iPhone, install it, then enable full trust for this CA.
+     将描述文件传到 iPhone 安装，然后为该 CA 开启完全信任。
   2. Merge the example outbounds/routing rules into your own proxy configuration.
+     将示例中的出站和路由规则合并到你自己的代理配置。
   3. Enable TLS/HTTP sniffing with routeOnly on the inbound that carries phone traffic.
+     在承载手机流量的入站上启用 TLS/HTTP sniffing，并设置 routeOnly。
   4. Run 'sudo hle verify', then test that only the documented Apple hosts reach loopback:10451.
+     运行 'sudo hle verify'，并确认只有文档列出的 Apple 域名进入 127.0.0.1:10451。
 
 Remove everything this mode installed (it never touches your proxy core) with: sudo hle uninstall
+完整卸载本模式安装的内容（不会触碰你的代理核心）：sudo hle uninstall
 No proxy core, proxy port, firewall rule, or TCP tuning was installed in this mode.
+本模式没有安装代理核心、代理端口、防火墙规则或 TCP 调优。
 EOF
 }
 
