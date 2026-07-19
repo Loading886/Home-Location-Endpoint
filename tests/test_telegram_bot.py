@@ -168,6 +168,7 @@ class TelegramBotTests(unittest.TestCase):
                 bot = telegram_bot.LocationBot(TOKEN, CHAT_ID)
                 bot.api = FakeTelegram()
                 bot.show_menu()
+                menu_text = bot.api.calls[-1][1]["text"]
                 markup = json.loads(bot.api.calls[-1][1]["reply_markup"])
                 buttons = {
                     button["callback_data"]: button
@@ -184,6 +185,10 @@ class TelegramBotTests(unittest.TestCase):
                 self.assertEqual(buttons["loc:delete-menu"]["style"], "danger")
                 self.assertEqual(buttons["handoff:profile"]["style"], "primary")
                 self.assertEqual(buttons["handoff:node"]["style"], "primary")
+                self.assertIn("iPhone 可能继续使用定位缓存", menu_text)
+                self.assertIn("隐私与安全性 → 定位服务", menu_text)
+                self.assertIn("必要时重启手机", menu_text)
+                self.assertNotIn("选择城市立即生效", menu_text)
 
                 modifier.write_text("paused\n", encoding="ascii")
                 bot.show_menu()

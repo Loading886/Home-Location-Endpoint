@@ -171,8 +171,9 @@ sudo hle uninstall
 普通用户的 PATH 可能不含 `/usr/local/sbin`，因此上面统一用 `sudo`。
 
 `hle pause` 不会停止 Xray 或定位拦截器，也不会改变代理端口。它让已进入拦截器的 Apple 定位
-请求继续访问原始 Apple host，并把响应不作坐标改写地返回；`hle resume` 恢复改写。切换立即对
-新请求生效，无需重启服务或重新连接节点，状态保存在 `/var/lib/home-location-endpoint/modifier.state`。
+请求继续访问原始 Apple host，并把响应不作坐标改写地返回；`hle resume` 恢复改写。服务端对
+新请求无需重启服务或重新连接节点，但 iPhone 仍可能继续使用定位缓存；状态保存在
+`/var/lib/home-location-endpoint/modifier.state`。
 进阶模式使用 `/var/lib/home-location-endpoint/control/modifier.state`。
 
 `hle profile serve` 默认在 TCP `18080` 启动带随机令牌的一次性 HTTP 下载，100 分钟后或首次

@@ -421,7 +421,11 @@ class LocationBot:
         else:
             message.append("当前：%s" % current_label)
             message.append("地址：%s" % current.get("address", "未记录"))
-        message.append("选择城市立即生效，不需要重启服务。")
+        message.append(
+            "切换城市会立即更新服务端配置，但 iPhone 可能继续使用定位缓存。"
+            "请先等待几分钟；仍未变化时，到“设置 → 隐私与安全性 → 定位服务”"
+            "关闭后重新打开，必要时重启手机。"
+        )
         self.send("\n\n".join(message), rows)
 
     def show_delete_menu(self):
