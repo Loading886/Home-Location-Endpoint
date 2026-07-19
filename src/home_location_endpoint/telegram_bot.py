@@ -64,6 +64,7 @@ MAX_RESPONSE = 2 * 1024 * 1024
 MAX_PROFILE_SIZE = 512 * 1024
 MAX_NODE_URI_SIZE = 8192
 SESSION_TTL = 900
+NODE_CREDENTIAL_NOTICE = "代理节点链接（包含连接凭据，请妥善保管）："
 BOT_COMMANDS = [
     {"command": "menu", "description": "打开定位菜单"},
     {"command": "status", "description": "查看当前定位"},
@@ -308,6 +309,31 @@ def load_profile():
     return content
 
 
+def validate_profile_download_url(value):
+    value = str(value or "").strip()
+    if len(value) > 2048 or any(character.isspace() for character in value):
+        raise BotError("CA 描述文件下载链接格式异常")
+    parsed = urllib.parse.urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or not re.fullmatch(
+            r"/[A-Za-z0-9_-]{16,128}/%s" % re.escape(PROFILE_FILE.name),
+            parsed.path,
+        )
+    ):
+        raise BotError("CA 描述文件下载链接格式异常")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise BotError("CA 描述文件下载链接端口异常") from exc
+    return value
+
+
 class LocationBot:
     def __init__(self, token, chat_id):
         self.api = Telegram(token)
@@ -353,9 +379,8 @@ class LocationBot:
         self.api.call("sendMessage", payload)
 
     def send_node_uri(self):
-        self.send(
-            "代理节点链接（包含连接凭据，请妥善保管）：\n\n%s" % load_node_uri(),
-        )
+        self.send(NODE_CREDENTIAL_NOTICE)
+        self.send(load_node_uri())
 
     def send_profile(self):
         self.api.send_document(
@@ -610,6 +635,31 @@ class LocationBot:
             except BotError as exc:
                 print("telegram poll error: %s" % exc, file=sys.stderr, flush=True)
                 time.sleep(5)
+
+
+def send_install_handoff(download_url, timeout_minutes):
+    try:
+        timeout_minutes = int(timeout_minutes)
+    except (TypeError, ValueError) as exc:
+        raise BotError("CA 描述文件下载时限异常") from exc
+    if not 1 <= timeout_minutes <= 1440:
+        raise BotError("CA 描述文件下载时限异常")
+    download_url = validate_profile_download_url(download_url)
+    token = TOKEN_FILE.read_text(encoding="ascii").strip()
+    chat_id = CHAT_FILE.read_text(encoding="ascii").strip()
+    bot = LocationBot(token, chat_id)
+    bot.send(NODE_CREDENTIAL_NOTICE)
+    bot.send(load_node_uri())
+    bot.send(
+        "以下是手机 CA 证书描述文件。请使用 iPhone Safari 打开下一条消息中的"
+        "下载链接；若 Telegram 内置浏览器未触发下载，请长按链接并复制到 Safari。"
+        "下载后，在系统设置中安装描述文件，再到“设置 → 通用 → 关于本机 → "
+        "证书信任设置”开启完全信任，并核对安装器终端显示的 CA SHA-256 指纹。"
+        "链接有效 %d 分钟，首次成功下载后立即失效，仅可使用一次（阅后即焚）。"
+        "若无法访问，请临时放行链接所示 TCP 端口，下载后及时收回。"
+        % timeout_minutes
+    )
+    bot.send(download_url)
 
 
 def parse_args():

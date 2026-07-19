@@ -11,7 +11,7 @@ from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from home_location_endpoint import cli, render
+from home_location_endpoint import cli, render, telegram_bot
 
 
 class CliTests(unittest.TestCase):
@@ -136,6 +136,24 @@ class CliTests(unittest.TestCase):
         self.assertIs(args.func, cli.command_profile_serve)
         self.assertEqual(args.port, 18080)
         self.assertEqual(args.timeout_minutes, 100)
+        self.assertFalse(args.notify_telegram)
+
+    def test_profile_telegram_notification_requires_advanced_mode(self):
+        with mock.patch.object(cli, "install_mode", return_value="full"):
+            with self.assertRaisesRegex(SystemExit, "advanced-mode"):
+                cli._notify_telegram_install_handoff("http://example.com/file", 100)
+
+    def test_profile_telegram_notification_delegates_to_the_bot(self):
+        url = (
+            "http://203.0.113.7:18080/"
+            "fixed-download-token/Home-Location-Endpoint-CA.mobileconfig"
+        )
+        with (
+            mock.patch.object(cli, "install_mode", return_value="advanced"),
+            mock.patch.object(telegram_bot, "send_install_handoff") as notify,
+        ):
+            cli._notify_telegram_install_handoff(url, 100)
+        notify.assert_called_once_with(url, 100)
 
     def test_profile_serve_requires_a_client_reachable_host(self):
         with mock.patch.object(cli, "_install_inventory", return_value={}):
@@ -159,12 +177,18 @@ class CliTests(unittest.TestCase):
                 port=port,
                 timeout_minutes=1,
                 no_qr=True,
+                notify_telegram=True,
             )
             output = io.StringIO()
             token = "fixed-download-token"
+            expected_url = (
+                "http://127.0.0.1:%d/%s/%s"
+                % (port, token, cli.PROFILE_NAME)
+            )
             with (
                 mock.patch.object(cli, "ETC", etc),
                 mock.patch.object(cli.secrets, "token_urlsafe", return_value=token),
+                mock.patch.object(cli, "_notify_telegram_install_handoff") as notify,
                 redirect_stdout(output),
             ):
                 worker = threading.Thread(
@@ -203,6 +227,7 @@ class CliTests(unittest.TestCase):
                 worker.join(timeout=3)
 
             self.assertFalse(worker.is_alive())
+            notify.assert_called_once_with(expected_url, 1)
             self.assertIn("Profile downloaded; server closed.", output.getvalue())
 
     def test_profile_and_location_integrity_helpers(self):

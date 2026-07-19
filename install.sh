@@ -1572,7 +1572,11 @@ interactive_output() {
 }
 
 serve_profile_download() {
-    /usr/local/sbin/hle profile serve
+    if advanced_mode; then
+        /usr/local/sbin/hle profile serve --notify-telegram
+    else
+        /usr/local/sbin/hle profile serve
+    fi
 }
 
 auto_serve_profile() {

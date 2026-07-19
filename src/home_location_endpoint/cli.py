@@ -300,6 +300,19 @@ def _profile_fingerprint(ca_der):
     return ":".join(digest[index:index + 2] for index in range(0, len(digest), 2))
 
 
+def _notify_telegram_install_handoff(url, timeout_minutes):
+    if install_mode() != "advanced":
+        raise SystemExit("--notify-telegram requires an advanced-mode install")
+    try:
+        if __package__:
+            from . import telegram_bot
+        else:
+            import telegram_bot
+        telegram_bot.send_install_handoff(url, timeout_minutes)
+    except (telegram_bot.BotError, OSError) as exc:
+        raise SystemExit("Telegram installation handoff failed: %s" % exc) from exc
+
+
 def command_profile_serve(args):
     path = ETC / PROFILE_NAME
     if not path.is_file():
@@ -371,6 +384,8 @@ def command_profile_serve(args):
     with server_class((bind, args.port), ProfileHandler) as server:
         port = server.server_address[1]
         url = "http://%s:%d%s" % (_profile_url_host(host), port, download_path)
+        if getattr(args, "notify_telegram", False):
+            _notify_telegram_install_handoff(url, args.timeout_minutes)
         print("Temporary CA profile download / 临时 CA 描述文件下载")
         print("URL / 下载地址: %s" % url)
         print("Valid for / 有效时间: %d minutes / 分钟" % args.timeout_minutes)
@@ -954,6 +969,10 @@ def parse_args():
     )
     profile_serve.add_argument(
         "--no-qr", action="store_true", help="do not print a terminal QR code"
+    )
+    profile_serve.add_argument(
+        "--notify-telegram", action="store_true",
+        help="send the advanced-mode node and one-time profile URL to Telegram",
     )
     profile_serve.set_defaults(func=command_profile_serve)
     verify = subparsers.add_parser("verify", help="run local integrity checks")

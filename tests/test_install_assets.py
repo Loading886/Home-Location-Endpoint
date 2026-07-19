@@ -131,6 +131,7 @@ class InstallAssetTests(unittest.TestCase):
         self.assertLess(result, handoff)
         self.assertIn("if ! interactive_output", installer)
         self.assertIn("if serve_profile_download", installer)
+        self.assertIn("hle profile serve --notify-telegram", installer)
         self.assertIn("130|143", installer)
         self.assertIn("CA 临时下载已由用户关闭", installer)
 

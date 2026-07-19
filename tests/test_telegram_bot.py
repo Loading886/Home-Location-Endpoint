@@ -229,14 +229,69 @@ class TelegramBotTests(unittest.TestCase):
                 call for call in bot.api.calls
                 if call[0] == "sendMessage" and "vless://" in call[1].get("text", "")
             )
+            message_calls = [
+                call for call in bot.api.calls if call[0] == "sendMessage"
+            ]
             document_call = next(
                 call for call in bot.api.calls if call[0] == "sendDocument"
             )
+            self.assertEqual(
+                message_calls[0][1]["text"],
+                telegram_bot.NODE_CREDENTIAL_NOTICE,
+            )
+            self.assertEqual(message_calls[1][1]["text"], "vless://test-node")
             self.assertNotIn("protect_content", node_call[1])
             self.assertEqual(document_call[1]["content"], profile_bytes)
             self.assertEqual(
                 document_call[1]["filename"],
                 "Home-Location-Endpoint-CA.mobileconfig",
+            )
+
+    def test_install_handoff_sends_four_separate_copyable_messages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            token_file = root / "token"
+            chat_file = root / "chat_id"
+            node_file = root / "node-uri.txt"
+            profile_file = root / "Home-Location-Endpoint-CA.mobileconfig"
+            token_file.write_text(TOKEN + "\n", encoding="ascii")
+            chat_file.write_text(CHAT_ID + "\n", encoding="ascii")
+            node_file.write_text("vless://copy-this-node\n", encoding="utf-8")
+            profile_file.write_bytes(b"placeholder")
+            url = (
+                "http://203.0.113.7:18080/"
+                "fixed-download-token/Home-Location-Endpoint-CA.mobileconfig"
+            )
+            api = FakeTelegram()
+            with (
+                mock.patch.object(telegram_bot, "TOKEN_FILE", token_file),
+                mock.patch.object(telegram_bot, "CHAT_FILE", chat_file),
+                mock.patch.object(telegram_bot, "NODE_URI_FILE", node_file),
+                mock.patch.object(telegram_bot, "PROFILE_FILE", profile_file),
+                mock.patch.object(telegram_bot, "Telegram", return_value=api),
+            ):
+                telegram_bot.send_install_handoff(url, 100)
+
+            messages = [
+                call[1] for call in api.calls if call[0] == "sendMessage"
+            ]
+            self.assertEqual(len(messages), 4)
+            self.assertEqual(messages[0]["text"], telegram_bot.NODE_CREDENTIAL_NOTICE)
+            self.assertEqual(messages[1]["text"], "vless://copy-this-node")
+            self.assertNotIn("vless://", messages[0]["text"])
+            self.assertIn("iPhone Safari", messages[2]["text"])
+            self.assertIn("有效 100 分钟", messages[2]["text"])
+            self.assertIn("首次成功下载后立即失效", messages[2]["text"])
+            self.assertEqual(messages[3]["text"], url)
+            self.assertTrue(all(
+                message["disable_web_page_preview"] == "true"
+                for message in messages
+            ))
+
+    def test_install_handoff_rejects_a_malformed_download_url(self):
+        with self.assertRaises(telegram_bot.BotError):
+            telegram_bot.validate_profile_download_url(
+                "https://example.com/not-a-profile"
             )
 
     def test_send_document_uses_installable_multipart_upload(self):
