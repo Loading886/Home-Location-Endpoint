@@ -13,8 +13,9 @@
 - Xray 路由进一步收窄到 `gs-loc` 与 `gspe85` 定位域名。
 - 同一域名集合的 QUIC 被阻断以促使 TCP 回退，避免服务端已收到的 UDP 定位流量直接旁路。
 - 拦截器只监听回环，systemd 使用独立低权限用户和文件系统限制。
-- 进阶模式的 Telegram Bot 使用另一个低权限账号，只处理一个 Chat ID，不监听公网端口，且
-  不能读取节点 URI、代理凭据或叶证书私钥；Bot API 心跳用于发现失联而非仅检查进程。
+- 进阶模式的 Telegram Bot 使用另一个低权限账号，只处理一个 Chat ID，不监听公网端口；只可
+  读取专门用于交付的节点 URI 副本和只含 CA 公钥的描述文件，不能读取 `install.env`、Xray
+  配置或叶证书私钥。Bot API 心跳用于发现失联而非仅检查进程。
 - 公共版本没有原始请求/响应抓包功能，也不记录坐标或 URL 查询参数。
 - HTTP 解析拒绝重复 framing header、CL/TE 歧义、折叠 header、控制字符和超限 body；并限制
   并发 worker、压缩后大小和日志文件大小。
@@ -42,7 +43,9 @@
   CA SHA-256，或改用 SCP/SFTP/可信 HTTPS。描述文件只含 CA 公钥证书，不含 CA 私钥。
 - 系统、Xray、Python 或 OpenSSL 的漏洞可能突破预期边界。
 - Bot Token 允许控制本节点的活动虚拟地点，应为每个节点创建专用 Bot。Token 泄露或 Telegram
-  账号被控制会允许切换/增加/删除地点，但 Bot 的系统权限仍限制其读取代理和证书私钥。
+  账号被控制会允许切换/增加/删除地点，并可能取得节点 URI 与 CA 描述文件；Bot 的系统权限仍
+  限制其读取 root 凭据、Xray 配置和证书私钥。为了允许复制节点和安装描述文件，交付消息可被
+  保存并会留在 Telegram 私聊历史中；Telegram 账号或 Bot Token 失陷后应立即轮换节点凭据。
 - SS2022 没有 REALITY 伪装，且当前 Xray 会提示 Shadowsocks 支持未来可能移除。它作为兼容
   选项提供，不应被理解为比推荐的 VLESS + REALITY 更强的公网抗识别方案。
 

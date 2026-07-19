@@ -7,7 +7,10 @@ import argparse
 import ipaddress
 import json
 import os
+import plistlib
 import re
+import secrets
+import stat
 import sys
 import time
 import urllib.error
@@ -49,11 +52,23 @@ LOCK_FILE = LOCATION_FILE.parent / "telegram.lock"
 HEALTH_FILE = Path(os.environ.get(
     "HLE_TELEGRAM_HEALTH_FILE", "/run/home-location-endpoint-bot/health"
 ))
+NODE_URI_FILE = Path(os.environ.get(
+    "HLE_TELEGRAM_NODE_URI_FILE",
+    "/etc/home-location-endpoint/telegram/node-uri.txt",
+))
+PROFILE_FILE = Path(os.environ.get(
+    "HLE_TELEGRAM_PROFILE_FILE",
+    "/etc/home-location-endpoint/telegram/Home-Location-Endpoint-CA.mobileconfig",
+))
 MAX_RESPONSE = 2 * 1024 * 1024
+MAX_PROFILE_SIZE = 512 * 1024
+MAX_NODE_URI_SIZE = 8192
 SESSION_TTL = 900
 BOT_COMMANDS = [
     {"command": "menu", "description": "打开定位菜单"},
     {"command": "status", "description": "查看当前定位"},
+    {"command": "profile", "description": "获取 CA 描述文件"},
+    {"command": "node", "description": "获取代理节点链接"},
 ]
 BUILTIN_MENU_LABELS = {
     "ip_city": "🌐 出口城市",
@@ -123,12 +138,11 @@ class Telegram:
         self.token = validate_token(token)
         self.base = "%s/bot%s/" % (telegram_api_root(), self.token)
 
-    def call(self, method, payload=None, timeout=35):
-        encoded = urllib.parse.urlencode(payload or {}).encode("utf-8")
+    def _request(self, method, encoded, content_type, timeout):
         request = urllib.request.Request(
             self.base + method,
             data=encoded,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={"Content-Type": content_type},
         )
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -145,6 +159,55 @@ class Telegram:
             description = str(result.get("description", "request rejected"))[:200]
             raise BotError("Telegram API: %s" % description)
         return result.get("result")
+
+    def call(self, method, payload=None, timeout=35):
+        encoded = urllib.parse.urlencode(payload or {}).encode("utf-8")
+        return self._request(
+            method,
+            encoded,
+            "application/x-www-form-urlencoded",
+            timeout,
+        )
+
+    def send_document(self, chat_id, filename, content, caption):
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", filename):
+            raise BotError("Telegram document filename is invalid")
+        if not isinstance(content, bytes) or not content:
+            raise BotError("Telegram document is empty")
+        if len(content) > MAX_PROFILE_SIZE:
+            raise BotError("Telegram document is too large")
+        boundary = "----HLE%s" % secrets.token_hex(16)
+        chunks = []
+        for name, value in {
+            "chat_id": chat_id,
+            "caption": caption[:1000],
+        }.items():
+            chunks.extend([
+                ("--%s\r\n" % boundary).encode("ascii"),
+                (
+                    'Content-Disposition: form-data; name="%s"\r\n\r\n'
+                    % name
+                ).encode("ascii"),
+                str(value).encode("utf-8"),
+                b"\r\n",
+            ])
+        chunks.extend([
+            ("--%s\r\n" % boundary).encode("ascii"),
+            (
+                'Content-Disposition: form-data; name="document"; '
+                'filename="%s"\r\n' % filename
+            ).encode("ascii"),
+            b"Content-Type: application/x-apple-aspen-config\r\n\r\n",
+            content,
+            b"\r\n",
+            ("--%s--\r\n" % boundary).encode("ascii"),
+        ])
+        return self._request(
+            "sendDocument",
+            b"".join(chunks),
+            "multipart/form-data; boundary=%s" % boundary,
+            45,
+        )
 
 
 def validate_credentials(token, chat_id):
@@ -196,6 +259,55 @@ def keyboard(rows):
     )
 
 
+def read_regular_file(path, maximum):
+    try:
+        metadata = os.lstat(path)
+    except OSError as exc:
+        raise BotError("交付文件不存在，请重新运行安装器。") from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise BotError("交付文件类型异常，请检查安装状态。")
+    if metadata.st_size <= 0 or metadata.st_size > maximum:
+        raise BotError("交付文件大小异常，请检查安装状态。")
+    try:
+        content = Path(path).read_bytes()
+    except OSError as exc:
+        raise BotError("无法读取交付文件，请检查安装状态。") from exc
+    if len(content) != metadata.st_size:
+        raise BotError("交付文件在读取期间发生变化，请重试。")
+    return content
+
+
+def load_node_uri():
+    content = read_regular_file(NODE_URI_FILE, MAX_NODE_URI_SIZE)
+    try:
+        value = content.decode("utf-8").strip()
+    except UnicodeError as exc:
+        raise BotError("节点链接编码异常，请重新运行安装器。") from exc
+    if "\n" in value or "\r" in value or not value.startswith(("vless://", "ss://")):
+        raise BotError("节点链接内容异常，请重新运行安装器。")
+    return value
+
+
+def load_profile():
+    content = read_regular_file(PROFILE_FILE, MAX_PROFILE_SIZE)
+    try:
+        profile = plistlib.loads(content)
+    except (plistlib.InvalidFileException, ValueError) as exc:
+        raise BotError("CA 描述文件格式异常，请重新运行安装器。") from exc
+    payloads = profile.get("PayloadContent") if isinstance(profile, dict) else None
+    if (
+        not isinstance(profile, dict)
+        or profile.get("PayloadType") != "Configuration"
+        or not isinstance(payloads, list)
+        or len(payloads) != 1
+        or not isinstance(payloads[0], dict)
+        or payloads[0].get("PayloadType") != "com.apple.security.root"
+        or not isinstance(payloads[0].get("PayloadContent"), bytes)
+    ):
+        raise BotError("CA 描述文件内容异常，请重新运行安装器。")
+    return content
+
+
 class LocationBot:
     def __init__(self, token, chat_id):
         self.api = Telegram(token)
@@ -231,10 +343,27 @@ class LocationBot:
             yield
 
     def send(self, text, rows=None):
-        payload = {"chat_id": self.chat_id, "text": text[:4000]}
+        payload = {
+            "chat_id": self.chat_id,
+            "text": text[:4000],
+            "disable_web_page_preview": "true",
+        }
         if rows is not None:
             payload["reply_markup"] = keyboard(rows)
         self.api.call("sendMessage", payload)
+
+    def send_node_uri(self):
+        self.send(
+            "代理节点链接（包含连接凭据，请妥善保管）：\n\n%s" % load_node_uri(),
+        )
+
+    def send_profile(self):
+        self.api.send_document(
+            self.chat_id,
+            "Home-Location-Endpoint-CA.mobileconfig",
+            load_profile(),
+            "iOS CA 描述文件。安装后请核对服务器终端显示的 CA SHA-256 指纹。",
+        )
 
     def answer(self, callback_id, text=""):
         payload = {"callback_query_id": callback_id}
@@ -275,6 +404,10 @@ class LocationBot:
         rows.append([
             {"text": "➕ 增加地点", "callback_data": "loc:add"},
             {"text": "➖ 删除地点", "callback_data": "loc:delete-menu"},
+        ])
+        rows.append([
+            {"text": "📱 获取描述文件", "callback_data": "handoff:profile"},
+            {"text": "🔗 获取节点链接", "callback_data": "handoff:node"},
         ])
         current = data["presets"][data["active"]]
         current_label = self._label(current, data["active"])
@@ -322,6 +455,10 @@ class LocationBot:
             command = parts[0].split("@", 1)[0].lower()
             if command in {"/start", "/menu", "/location", "/status"}:
                 self.show_menu()
+            elif command == "/profile":
+                self.send_profile()
+            elif command == "/node":
+                self.send_node_uri()
             else:
                 self.send("请使用 /menu 打开定位菜单。")
             return
@@ -368,6 +505,10 @@ class LocationBot:
             self.show_menu("已恢复真实定位。")
         elif data == "loc:delete-menu":
             self.show_delete_menu()
+        elif data == "handoff:profile":
+            self.send_profile()
+        elif data == "handoff:node":
+            self.send_node_uri()
         elif data.startswith("loc:set:"):
             key = data[8:]
             with self.locked():

@@ -36,6 +36,12 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/m
 - `🌍 真实定位`：暂停响应改写，但代理和 Apple 定位请求转发继续运行。
 - `➕ 增加地点`：依次输入短名称、识别地址和 `纬度, 经度` 格式的 WGS84 坐标，确认后保存。
 - `➖ 删除地点`：二次确认后删除非活动地点；当前地点和最后一个地点不可删除。
+- `📱 获取描述文件`：直接发送可在 iPhone 安装的 CA `.mobileconfig` 附件。
+- `🔗 获取节点链接`：按当前安装协议返回一行 `vless://` 或 `ss://` 节点 URI。
+
+输入框旁的命令菜单也提供 `/profile` 和 `/node`。为了让 iPhone 能保存并安装附件、让代理客户端
+能复制节点 URI，这两类消息不会启用 Telegram `protect_content`。CA 描述文件只含公钥证书；
+节点 URI 含代理连接凭据，并会保留在 Telegram 私聊历史中，应使用专用私有 Bot 并妥善保管账号。
 
 菜单沿用 Apple Relay 控制器的状态配色：蓝色表示普通可选操作，绿色表示当前地点或正向操作，
 红色表示删除、取消等破坏性操作。切换地点或恢复真实定位后，绿色会随当前状态移动。
@@ -62,13 +68,16 @@ Bot 运行在独立的 `home-location-bot` 系统账号：
 ```text
 /etc/home-location-endpoint/telegram/token       root:home-location-bot 0640
 /etc/home-location-endpoint/telegram/chat_id     root:home-location-bot 0640
+/etc/home-location-endpoint/telegram/node-uri.txt root:home-location-bot 0640
+/etc/home-location-endpoint/telegram/Home-Location-Endpoint-CA.mobileconfig
 /var/lib/home-location-endpoint/control/         home-location-bot:home-location 0750
 /var/backups/home-location-endpoint/              home-location-bot:home-location-bot 0700
 /run/home-location-endpoint-bot/health            home-location-bot private runtime file
 ```
 
-Bot 不能读取 `install.env`、`node-uri.txt` 或 `leaf.key`。定位拦截器只有地点文件所在组的只读权限；
-所有修改均采用临时文件、`fsync` 和原子替换，并在改动前保留最近 30 份本地备份。
+Bot 只能读取 Telegram 目录中的交付副本，不能读取 root-only 的原始 `node-uri.txt`、
+`install.env`、Xray 配置或 `leaf.key`。定位拦截器只有地点文件所在组的只读权限；所有修改均采用
+临时文件、`fsync` 和原子替换，并在改动前保留最近 30 份本地备份。
 
 只有配置的 Chat ID 会被处理。其他 Chat 的消息被静默忽略。Bot 主动轮询 Telegram 官方 HTTPS
 API，不监听公网端口；systemd 还限制可写目录、地址族、能力、命名空间、任务数和内存。

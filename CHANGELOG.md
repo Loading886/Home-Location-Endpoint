@@ -10,6 +10,10 @@
 - Display all ten built-in location entries with concise Chinese names while
   retaining English addresses and compatibility with existing English-labeled
   location databases.
+- Let the authorized advanced-mode Telegram chat retrieve the current VLESS or
+  SS2022 URI and CA profile directly. Deliveries use validated bounded files and
+  read-only handoff copies that do not expose the root credential store, Xray
+  configuration, or leaf private key to the Bot.
 
 ## 0.2.2 - 2026-07-19
 

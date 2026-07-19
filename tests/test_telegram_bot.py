@@ -1,5 +1,6 @@
 import json
 import os
+import plistlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,15 @@ class FakeTelegram:
 
     def call(self, method, payload=None, timeout=35):
         self.calls.append((method, payload or {}, timeout))
+        return True
+
+    def send_document(self, chat_id, filename, content, caption):
+        self.calls.append(("sendDocument", {
+            "chat_id": chat_id,
+            "filename": filename,
+            "content": content,
+            "caption": caption,
+        }, 45))
         return True
 
 
@@ -137,7 +147,7 @@ class TelegramBotTests(unittest.TestCase):
         self.assertEqual(commands[0], "setMyCommands")
         self.assertEqual(
             [item["command"] for item in json.loads(commands[1]["commands"])],
-            ["menu", "status"],
+            ["menu", "status", "profile", "node"],
         )
         self.assertEqual(menu[0], "setChatMenuButton")
         self.assertEqual(menu[1]["chat_id"], CHAT_ID)
@@ -172,6 +182,8 @@ class TelegramBotTests(unittest.TestCase):
                 self.assertEqual(buttons["loc:restore"]["style"], "primary")
                 self.assertEqual(buttons["loc:add"]["style"], "success")
                 self.assertEqual(buttons["loc:delete-menu"]["style"], "danger")
+                self.assertEqual(buttons["handoff:profile"]["style"], "primary")
+                self.assertEqual(buttons["handoff:node"]["style"], "primary")
 
                 modifier.write_text("paused\n", encoding="ascii")
                 bot.show_menu()
@@ -183,6 +195,89 @@ class TelegramBotTests(unittest.TestCase):
                 }
                 self.assertEqual(paused_buttons["loc:restore"]["style"], "success")
                 self.assertEqual(paused_buttons["loc:set:ip_city"]["style"], "primary")
+
+    def test_authorized_chat_can_receive_node_and_profile_handoffs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            node_uri = root / "node-uri.txt"
+            profile = root / "profile.mobileconfig"
+            node_uri.write_text("vless://test-node\n", encoding="utf-8")
+            profile_bytes = plistlib.dumps({
+                "PayloadType": "Configuration",
+                "PayloadContent": [{
+                    "PayloadType": "com.apple.security.root",
+                    "PayloadContent": b"test-ca",
+                }],
+            })
+            profile.write_bytes(profile_bytes)
+
+            with (
+                mock.patch.object(telegram_bot, "NODE_URI_FILE", node_uri),
+                mock.patch.object(telegram_bot, "PROFILE_FILE", profile),
+            ):
+                bot = telegram_bot.LocationBot(TOKEN, CHAT_ID)
+                bot.api = FakeTelegram()
+                bot.handle_callback({"id": "1", "data": "handoff:node"})
+                bot.handle_callback({"id": "2", "data": "handoff:profile"})
+
+            node_call = next(
+                call for call in bot.api.calls
+                if call[0] == "sendMessage" and "vless://" in call[1].get("text", "")
+            )
+            document_call = next(
+                call for call in bot.api.calls if call[0] == "sendDocument"
+            )
+            self.assertNotIn("protect_content", node_call[1])
+            self.assertEqual(document_call[1]["content"], profile_bytes)
+            self.assertEqual(
+                document_call[1]["filename"],
+                "Home-Location-Endpoint-CA.mobileconfig",
+            )
+
+    def test_send_document_uses_installable_multipart_upload(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            @staticmethod
+            def read(_limit):
+                return b'{"ok":true,"result":{"message_id":1}}'
+
+        api = telegram_bot.Telegram(TOKEN)
+        with mock.patch.object(
+            telegram_bot.urllib.request, "urlopen", return_value=Response()
+        ) as urlopen:
+            api.send_document(
+                CHAT_ID,
+                "Home-Location-Endpoint-CA.mobileconfig",
+                b"profile-content",
+                "CA profile",
+            )
+        request = urlopen.call_args.args[0]
+        content_type = request.get_header("Content-type")
+        self.assertTrue(content_type.startswith("multipart/form-data; boundary="))
+        self.assertNotIn(b'name="protect_content"', request.data)
+        self.assertIn(b"profile-content", request.data)
+        self.assertIn(b"Home-Location-Endpoint-CA.mobileconfig", request.data)
+
+    def test_handoff_rejects_unexpected_or_malformed_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            node_uri = root / "node-uri.txt"
+            profile = root / "profile.mobileconfig"
+            node_uri.write_text("https://example.com\n", encoding="utf-8")
+            profile.write_text("not a plist", encoding="ascii")
+            with (
+                mock.patch.object(telegram_bot, "NODE_URI_FILE", node_uri),
+                mock.patch.object(telegram_bot, "PROFILE_FILE", profile),
+            ):
+                with self.assertRaises(telegram_bot.BotError):
+                    telegram_bot.load_node_uri()
+                with self.assertRaises(telegram_bot.BotError):
+                    telegram_bot.load_profile()
 
     def test_authorized_callbacks_switch_and_restore_atomically(self):
         with tempfile.TemporaryDirectory() as temporary:

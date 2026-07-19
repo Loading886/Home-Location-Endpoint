@@ -82,12 +82,19 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(404, {"ok": False})
             return
         method = self.path.rsplit("/", 1)[-1]
-        payload = {
-            key: values[-1]
-            for key, values in urllib.parse.parse_qs(
-                body.decode("utf-8"), keep_blank_values=True
-            ).items()
-        }
+        content_type = self.headers.get("Content-Type", "")
+        if content_type.startswith("multipart/form-data;"):
+            payload = {
+                "content_type": content_type,
+                "body_size": str(len(body)),
+            }
+        else:
+            payload = {
+                key: values[-1]
+                for key, values in urllib.parse.parse_qs(
+                    body.decode("utf-8"), keep_blank_values=True
+                ).items()
+            }
         state.record(method, payload)
         if method == "getMe":
             result = {
@@ -119,7 +126,7 @@ class Handler(BaseHTTPRequestHandler):
             result = {"url": "", "pending_update_count": 0}
         elif method in {
             "deleteWebhook", "sendMessage", "answerCallbackQuery",
-            "setMyCommands", "setChatMenuButton",
+            "setMyCommands", "setChatMenuButton", "sendDocument",
         }:
             result = True
         else:

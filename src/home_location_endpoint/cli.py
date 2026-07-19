@@ -515,6 +515,13 @@ def managed_permissions_are_safe(mode):
             (ETC / "telegram", 0, bot_gid, 0o750),
             (ETC / "telegram" / "token", 0, bot_gid, 0o640),
             (ETC / "telegram" / "chat_id", 0, bot_gid, 0o640),
+            (ETC / "telegram" / "node-uri.txt", 0, bot_gid, 0o640),
+            (
+                ETC / "telegram" / PROFILE_NAME,
+                0,
+                bot_gid,
+                0o640,
+            ),
             (control, bot_uid, home_gid, 0o750),
             (control / "location.json", bot_uid, home_gid, 0o640),
             (control / MODIFIER_STATE_NAME, bot_uid, home_gid, 0o640),
@@ -544,6 +551,27 @@ def advanced_presets_are_valid():
     except (ImportError, OSError, ValueError):
         return False
     return True
+
+
+def advanced_handoff_matches():
+    if install_mode() != "advanced":
+        return True
+    try:
+        original_uri = (ETC / "node-uri.txt").read_bytes()
+        handoff_uri = (ETC / "telegram" / "node-uri.txt").read_bytes()
+        original_profile = (ETC / PROFILE_NAME).read_bytes()
+        handoff_profile = (ETC / "telegram" / PROFILE_NAME).read_bytes()
+        uri = handoff_uri.decode("utf-8").strip()
+    except (OSError, UnicodeError):
+        return False
+    return (
+        bool(uri)
+        and "\n" not in uri
+        and "\r" not in uri
+        and uri.startswith(("vless://", "ss://"))
+        and handoff_uri == original_uri
+        and handoff_profile == original_profile
+    )
 
 
 def bot_health_is_fresh():
@@ -606,6 +634,7 @@ def command_verify(_args):
     ]
     if mode == "advanced":
         function_checks.append((advanced_presets_are_valid, "advanced location presets"))
+        function_checks.append((advanced_handoff_matches, "Telegram handoff files"))
         function_checks.append((bot_health_is_fresh, "Telegram Bot API heartbeat"))
     for check, label in function_checks:
         try:

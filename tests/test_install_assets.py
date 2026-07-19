@@ -170,15 +170,25 @@ class InstallAssetTests(unittest.TestCase):
         self.assertIn("TasksMax=64", service)
         self.assertIn("maxsize 16M", logrotate)
 
-    def test_advanced_bot_is_low_privilege_and_does_not_receive_node_secrets(self):
+    def test_advanced_bot_is_low_privilege_with_scoped_handoff_files(self):
         service = (
             ROOT / "systemd" / "home-location-telegram-bot.service"
         ).read_text(encoding="utf-8")
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("User=home-location-bot", service)
         self.assertIn("ProtectSystem=strict", service)
         self.assertIn("NoNewPrivileges=true", service)
         self.assertIn("InaccessiblePaths=/etc/home-location-endpoint/install.env", service)
         self.assertIn("/etc/home-location-endpoint/node-uri.txt", service)
+        self.assertIn("/etc/home-location-endpoint/leaf.key", service)
+        self.assertIn("HLE_TELEGRAM_NODE_URI_FILE=", service)
+        self.assertIn("HLE_TELEGRAM_PROFILE_FILE=", service)
+        self.assertIn('prepare_telegram_handoff', installer)
+        self.assertIn('"${ETC_DIR}/telegram/node-uri.txt"', installer)
+        self.assertIn(
+            '"${ETC_DIR}/telegram/Home-Location-Endpoint-CA.mobileconfig"',
+            installer,
+        )
         self.assertIn("RuntimeDirectory=home-location-endpoint-bot", service)
         self.assertIn("HLE_TELEGRAM_HEALTH_FILE=", service)
         self.assertNotIn("0.0.0.0", service)

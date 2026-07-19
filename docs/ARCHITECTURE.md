@@ -91,8 +91,9 @@ Wi-Fi 身份最多保留 256 个、仅在内存中存在，服务重启即清空
 真正在线”。
 
 切换地点时只替换 JSON 和 `modifier.state`；拦截器会在后续请求读取新状态，不重启 Xray，也
-不终止已有普通代理连接。Bot 账号只获得控制目录和备份目录写权限，节点 URI、代理密钥和叶证书
-私钥通过 systemd `InaccessiblePaths` 明确隐藏。
+不终止已有普通代理连接。Bot 账号只获得控制目录和备份目录写权限，以及 Telegram 目录中节点
+URI 交付副本和公开 CA 描述文件的只读权限。root-only 原始节点文件、`install.env`、Xray 配置和
+叶证书私钥继续通过 Unix 权限及 systemd `InaccessiblePaths` 隐藏。
 
 ## 文件布局
 
@@ -108,6 +109,8 @@ Wi-Fi 身份最多保留 256 个、仅在内存中存在，服务重启即清空
   runtime.env                 advanced interceptor path override
   telegram/token              advanced, root:bot 0640
   telegram/chat_id            advanced, root:bot 0640
+  telegram/node-uri.txt       advanced Bot handoff copy, root:bot 0640
+  telegram/Home-Location-Endpoint-CA.mobileconfig
   Home-Location-Endpoint-CA.mobileconfig
   xray-location-routing.example.json
 /opt/home-location-endpoint/  Python runtime
@@ -125,7 +128,8 @@ Wi-Fi 身份最多保留 256 个、仅在内存中存在，服务重启即清空
 也避免为了切换状态重载 Xray 配置。
 
 `node-uri.txt` 与 Xray 配置只存在于代理模式。仅定位模式的 `install.env` 不含代理凭据。进阶模式
-的 Bot Token 独立保存，不写入 `install.env`。
+的 Bot Token 独立保存，不写入 `install.env`。Telegram 交付副本由安装器从本次验证通过的节点 URI
+和 CA 描述文件生成，Bot 不解析 `install.env`，也不接触 REALITY 私钥或叶证书私钥。
 
 CA 私钥不保留在磁盘。叶证书到期或显式 `--rotate-ca` 时，需要轮换 CA，并在手机重新安装和信任
 新描述文件。

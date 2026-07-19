@@ -14,6 +14,8 @@ Environment=HLE_LOCATION_CONFIG=/var/lib/home-location-endpoint/control/location
 Environment=HLE_MODIFIER_STATE=/var/lib/home-location-endpoint/control/modifier.state
 Environment=HLE_LOCATION_BACKUPS=/var/backups/home-location-endpoint
 Environment=HLE_TELEGRAM_HEALTH_FILE=/run/home-location-endpoint-bot/health
+Environment=HLE_TELEGRAM_NODE_URI_FILE=/etc/home-location-endpoint/telegram/node-uri.txt
+Environment=HLE_TELEGRAM_PROFILE_FILE=/etc/home-location-endpoint/telegram/Home-Location-Endpoint-CA.mobileconfig
 RuntimeDirectory=home-location-endpoint-bot
 RuntimeDirectoryMode=0750
 ExecStart=/usr/bin/python3 /opt/home-location-endpoint/telegram_bot.py

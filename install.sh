@@ -270,7 +270,9 @@ begin_transaction() {
 
 preflight_common_state() {
     local path
-    for path in "${ETC_DIR}" "${APP_DIR}" "${STATE_DIR}" "${LOG_DIR}"; do
+    for path in \
+        "${ETC_DIR}" "${APP_DIR}" "${STATE_DIR}" "${LOG_DIR}" \
+        "${ETC_DIR}/telegram" "${STATE_DIR}/control"; do
         [[ ! -L "${path}" ]] || die "managed directory must not be a symlink: ${path}"
     done
     [[ ! -L "${MARKER}" ]] || die "installer marker must not be a symlink"
@@ -285,6 +287,8 @@ preflight_common_state() {
         "${ETC_DIR}/node-uri.txt" \
         "${ETC_DIR}/runtime.env" \
         "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id" \
+        "${ETC_DIR}/telegram/node-uri.txt" \
+        "${ETC_DIR}/telegram/Home-Location-Endpoint-CA.mobileconfig" \
         "${APP_DIR}/interceptor.py" "${APP_DIR}/gsloc_rewrite.py" \
         "${APP_DIR}/wifitile_rewrite.py" "${APP_DIR}/location_picker.py" \
         "${APP_DIR}/preset_manager.py" "${APP_DIR}/telegram_bot.py" \
@@ -1046,6 +1050,28 @@ EOF
         || die "advanced control ownership validation failed"
 }
 
+prepare_telegram_handoff() {
+    advanced_mode || return 0
+    [[ -s "${ETC_DIR}/node-uri.txt" ]] \
+        || die "advanced Telegram handoff is missing the node URI"
+    [[ -s "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig" ]] \
+        || die "advanced Telegram handoff is missing the CA profile"
+    install -o root -g home-location-bot -m 0640 \
+        "${ETC_DIR}/node-uri.txt" \
+        "${ETC_DIR}/telegram/node-uri.txt"
+    install -o root -g home-location-bot -m 0640 \
+        "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig" \
+        "${ETC_DIR}/telegram/Home-Location-Endpoint-CA.mobileconfig"
+    cmp -s \
+        "${ETC_DIR}/node-uri.txt" \
+        "${ETC_DIR}/telegram/node-uri.txt" \
+        || die "advanced Telegram node handoff validation failed"
+    cmp -s \
+        "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig" \
+        "${ETC_DIR}/telegram/Home-Location-Endpoint-CA.mobileconfig" \
+        || die "advanced Telegram profile handoff validation failed"
+}
+
 select_random_location() {
     local output_gid
     note "Detecting the egress city and selecting a fresh random point"
@@ -1337,8 +1363,13 @@ normalize_managed_permissions() {
         chown root:home-location-bot "${ETC_DIR}/telegram"
         chmod 0750 "${ETC_DIR}/telegram"
         chown root:home-location-bot \
-            "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id"
-        chmod 0640 "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id"
+            "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id" \
+            "${ETC_DIR}/telegram/node-uri.txt" \
+            "${ETC_DIR}/telegram/Home-Location-Endpoint-CA.mobileconfig"
+        chmod 0640 \
+            "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id" \
+            "${ETC_DIR}/telegram/node-uri.txt" \
+            "${ETC_DIR}/telegram/Home-Location-Endpoint-CA.mobileconfig"
         chown home-location-bot:home-location "${STATE_DIR}/control"
         chmod 0750 "${STATE_DIR}/control"
         chown home-location-bot:home-location \
@@ -1622,6 +1653,7 @@ main() {
         load_or_create_credentials
         render_and_validate
     fi
+    prepare_telegram_handoff
     write_common_mode_state
     normalize_managed_permissions
     install_services

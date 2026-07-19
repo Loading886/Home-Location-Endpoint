@@ -136,7 +136,8 @@ ssh root@<span class="s">你的落地机IP</span></pre></div>
           </svg>
           <figcaption>①节点链接　②CA 描述文件路径　③CA 的 SHA-256 指纹</figcaption>
         </figure>
-        <p>随时可以再看这两样：</p>
+        <div class="callout callout-tip"><span class="ico">🤖</span><p><strong>更方便：</strong>安装了进阶 Bot 后，打开 Bot 菜单，点击<strong>获取节点链接</strong>或<strong>获取描述文件</strong>即可直接收到，不必再次登录服务器。</p></div>
+        <p>也可以在服务器随时再看这两样：</p>
         <div class="code"><pre><span class="c"># 再次打印节点链接</span>
 sudo hle show-link
 <span class="c"># 打印描述文件所在路径</span>
@@ -148,7 +149,7 @@ sudo hle profile</pre></div>
     <div class="step">
       <h3>用一次性令牌链接把描述文件下载到 iPhone</h3>
       <div class="step-body">
-        <p>不用手动传文件。交互式安装成功后，安装器会<strong>自动</strong>生成一个带随机令牌的临时下载地址，并在终端打印二维码。保持当前终端打开，直接扫码或打开链接即可。</p>
+        <p>最简单的方式是在 Telegram Bot 菜单点击<strong>获取描述文件</strong>，直接打开收到的 `.mobileconfig` 附件。安装器提供的一次性令牌链接和终端二维码仍作为备用方式：保持当前终端打开，扫码或打开链接即可。</p>
         <p>如果你按了 <span class="kbd">Ctrl+C</span>、链接过期，或者以后需要重新下载，再手动运行：</p>
         <div class="code"><pre>sudo hle profile serve</pre></div>
         <div class="callout callout-warn"><span class="ico">⏳</span>

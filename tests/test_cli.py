@@ -230,6 +230,27 @@ class CliTests(unittest.TestCase):
                 self.assertTrue(cli.profile_matches_ca())
                 self.assertTrue(cli.location_is_valid())
 
+    def test_advanced_handoff_must_match_root_managed_sources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            etc = Path(temporary)
+            telegram = etc / "telegram"
+            telegram.mkdir()
+            node_uri = b"vless://test-node\n"
+            profile = b"profile-bytes"
+            (etc / "node-uri.txt").write_bytes(node_uri)
+            (telegram / "node-uri.txt").write_bytes(node_uri)
+            (etc / cli.PROFILE_NAME).write_bytes(profile)
+            (telegram / cli.PROFILE_NAME).write_bytes(profile)
+            with (
+                mock.patch.object(cli, "ETC", etc),
+                mock.patch.object(cli, "install_mode", return_value="advanced"),
+            ):
+                self.assertTrue(cli.advanced_handoff_matches())
+                (telegram / "node-uri.txt").write_text(
+                    "ss://stale-node\n", encoding="utf-8"
+                )
+                self.assertFalse(cli.advanced_handoff_matches())
+
 
 if __name__ == "__main__":
     unittest.main()
