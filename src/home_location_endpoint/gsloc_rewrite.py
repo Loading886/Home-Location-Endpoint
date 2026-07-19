@@ -26,7 +26,8 @@ Observed wire format:
 "Unknown location" is the sentinel latitude == longitude == -18000000000
 (i.e. -180.00000000), which is a negative int64 -> a 10-byte two's-complement
 varint. A proven sentinel-only batch is replaced by a deterministic micro-cluster
-around the target. Valid batches are translated while retaining their geometry.
+around the target. Valid batches retain their relative structure, while
+kilometre-scale geometry is uniformly compressed into a bounded target cluster.
 
 The value written into the response is WGS84, which is also the coordinate frame
 returned by the installer's IP/city providers.
@@ -177,6 +178,7 @@ RESP_HEADER_LEN = 10  # wifi response: r.content[10:] is the BlockBSSIDApple pro
 SENTINEL_SCALED = -18000000000  # -180.00000000: locationd "no fix" marker
 NO_FIX_SOURCE = "no-fix-synthetic-cluster"
 NO_FIX_CLUSTER_RADIUS_M = 45.0
+TRANSLATED_CLUSTER_RADIUS_M = 45.0
 
 # The 10-byte response header (confirmed against the live server 2026-07-18) is:
 #   [0:2]  version marker      (0x00 0x01)
@@ -714,15 +716,70 @@ def translate_coordinate(lat, lon, source_lat, source_lon, target_lat, target_lo
     return new_lat, new_lon
 
 
-def _translate_location(loc_bytes, source, target, accuracy, preserve_accuracy):
+def coordinate_offset_m(origin_lat, origin_lon, lat, lon):
+    """Return the great-circle offset from origin as local north/east meters."""
+    lat1 = math.radians(origin_lat)
+    lat2 = math.radians(lat)
+    delta_lat = lat2 - lat1
+    delta_lon = math.radians(((lon - origin_lon + 180.0) % 360.0) - 180.0)
+    haversine = (
+        math.sin(delta_lat / 2.0) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2.0) ** 2
+    )
+    distance = 2.0 * EARTH_RADIUS_M * math.asin(
+        min(1.0, math.sqrt(max(0.0, haversine)))
+    )
+    if distance == 0:
+        return 0.0, 0.0
+    bearing = math.atan2(
+        math.sin(delta_lon) * math.cos(lat2),
+        math.cos(lat1) * math.sin(lat2)
+        - math.sin(lat1) * math.cos(lat2) * math.cos(delta_lon),
+    )
+    return distance * math.cos(bearing), distance * math.sin(bearing)
+
+
+def bounded_geometry_scale(
+    coordinates, source, radius_m=TRANSLATED_CLUSTER_RADIUS_M
+):
+    """Uniformly scale a source cluster so every translated point is bounded."""
+    if radius_m <= 0:
+        raise ValueError("translated cluster radius must be positive")
+    extent = 0.0
+    for lat, lon in coordinates:
+        if not _valid_coordinate(lat, lon):
+            continue
+        north, east = coordinate_offset_m(source[0], source[1], lat, lon)
+        extent = max(extent, math.hypot(north, east))
+    if extent <= radius_m:
+        return 1.0
+    return radius_m / extent
+
+
+def translate_coordinate_scaled(lat, lon, source, target, scale):
+    """Move one point to target while uniformly scaling its source offset."""
+    if not 0 < scale <= 1:
+        raise ValueError("geometry scale must be within (0, 1]")
+    north, east = coordinate_offset_m(source[0], source[1], lat, lon)
+    return offset_coordinate(target[0], target[1], north * scale, east * scale)
+
+
+def _translate_location(
+    loc_bytes,
+    source,
+    target,
+    accuracy,
+    preserve_accuracy,
+    geometry_scale,
+):
     fields = parse_fields(loc_bytes)
     lat, lon, _old_accuracy = _decode_location(loc_bytes)
     if lat is None or lon is None:
         return loc_bytes, False
     was_valid = _valid_coordinate(lat, lon)
     if was_valid:
-        new_lat, new_lon = translate_coordinate(
-            lat, lon, source[0], source[1], target[0], target[1]
+        new_lat, new_lon = translate_coordinate_scaled(
+            lat, lon, source, target, geometry_scale
         )
     else:
         new_lat, new_lon = target
@@ -746,8 +803,21 @@ def _translate_location(loc_bytes, source, target, accuracy, preserve_accuracy):
     return bytes(out), True
 
 
-def translate_block(block_bytes, source, target, accuracy=None):
-    """Translate Wi-Fi/cell response geometry instead of collapsing every point."""
+def translate_block(
+    block_bytes,
+    source,
+    target,
+    accuracy=None,
+    radius_m=TRANSLATED_CLUSTER_RADIUS_M,
+):
+    """Translate and uniformly bound Wi-Fi/cell geometry around the target."""
+    entries = decode_block(block_bytes)
+    coordinates = [
+        (entry["lat"], entry["lon"])
+        for entry in entries
+        if _valid_coordinate(entry["lat"], entry["lon"])
+    ]
+    geometry_scale = bounded_geometry_scale(coordinates, source, radius_m)
     out = bytearray()
     count = 0
     for field in parse_fields(block_bytes):
@@ -772,6 +842,7 @@ def translate_block(block_bytes, source, target, accuracy=None):
                     target,
                     accuracy,
                     preserve_accuracy=(field.field_no in CELL_ENTRY_FIELDS),
+                    geometry_scale=geometry_scale,
                 )
                 if did:
                     entry_out += len_field(location_field, replacement)

@@ -78,12 +78,12 @@ ssh root@<span class="s">你的落地机IP</span></pre></div>
       <h3>一键安装（选「进阶模式」）</h3>
       <div class="step-body">
         <p>在落地机上粘贴下面的命令。模式选择时输入 <span class="kbd">2</span> 安装项目推荐的进阶模式，再按安装器提示选择兼容的传输协议，最后粘贴 Bot Token 和数字 Chat ID。</p>
-        <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.3/install.sh \
-  | sudo env HLE_VERSION=v0.2.3 bash</pre></div>
+        <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.4/install.sh \
+  | sudo env HLE_VERSION=v0.2.4 bash</pre></div>
         <p>熟悉命令行时也可以无人值守安装：</p>
-        <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.3/install.sh \
+        <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.4/install.sh \
   | sudo env \
-      HLE_VERSION=v0.2.3 \
+      HLE_VERSION=v0.2.4 \
       HLE_TELEGRAM_BOT_TOKEN=<span class="s">'BOT_TOKEN'</span> \
       HLE_TELEGRAM_CHAT_ID=<span class="s">'NUMERIC_CHAT_ID'</span> \
       bash -s -- <span class="k">--mode</span> advanced <span class="k">--protocol</span> vless-reality <span class="k">--port</span> 443</pre></div>
