@@ -17,6 +17,7 @@ The scoped Apple location-assist host family (`gspe85*-ssl.ls.apple.com`) is
 also diverted here so its WifiTile response can be translated. This public
 build deliberately contains no raw request/response capture facility.
 """
+import collections
 import datetime
 import gzip
 import io
@@ -80,6 +81,20 @@ MAX_WORKERS = _bounded_env_int("GSLOC_MAX_WORKERS", 4, 1, 32)
 MAX_LOG_BYTES = _bounded_env_int(
     "GSLOC_MAX_LOG_BYTES", 16 * 1024 * 1024, 1024 * 1024, 1024 * 1024 * 1024
 )
+RECENT_WIFI_TTL = _bounded_env_int("GSLOC_RECENT_WIFI_TTL", 600, 30, 86400)
+RECENT_WIFI_MAX = _bounded_env_int("GSLOC_RECENT_WIFI_MAX", 256, 8, 1024)
+NO_FIX_MIN_LOCATIONS = _bounded_env_int(
+    "GSLOC_NO_FIX_MIN_LOCATIONS", 32, 8, 128
+)
+WIFI_TEMPLATE_TTL = _bounded_env_int(
+    "GSLOC_WIFI_TEMPLATE_TTL", 24 * 60 * 60, 300, 7 * 24 * 60 * 60
+)
+# Public Cardiff example documented by apple-corelocation-experiments. It is
+# fetched only after the phone's requested tile returns 404 and never written
+# to disk.
+WIFI_SEED_TILEKEY = os.environ.get("GSLOC_WIFI_SEED_TILEKEY", "81644851").strip()
+if WIFI_SEED_TILEKEY and not re.fullmatch(r"[0-9]{1,20}", WIFI_SEED_TILEKEY):
+    raise ValueError("GSLOC_WIFI_SEED_TILEKEY must be decimal or empty")
 
 # Only these hosts get their /clls/wloc body rewritten; both CN and non-CN so a
 # successful spoof that flips the device off the -cn endpoint stays covered.
@@ -113,6 +128,10 @@ _presets_cache = {"mtime": None, "value": None}
 _presets_lock = threading.Lock()
 _jitter_seed_cache = {"fingerprint": None, "value": None}
 _jitter_seed_lock = threading.Lock()
+_recent_wifi = collections.OrderedDict()
+_recent_wifi_lock = threading.Lock()
+_wifi_template_cache = {"payload": None, "seen": None}
+_wifi_template_lock = threading.Lock()
 _worker_slots = threading.BoundedSemaphore(MAX_WORKERS)
 
 
@@ -137,6 +156,120 @@ def log(msg):
         finally:
             if fd is not None:
                 os.close(fd)
+
+
+def _bssid_to_int(value):
+    """Normalize a textual or six-byte BSSID without logging the identifier."""
+    if not isinstance(value, str):
+        return None
+    raw = value.encode("latin1", errors="ignore")
+    compact = re.sub(r"[^0-9a-fA-F]", "", value)
+    if len(compact) == 12:
+        try:
+            return int(compact, 16)
+        except ValueError:
+            return None
+    if len(raw) == 6:
+        return int.from_bytes(raw, "big")
+    return None
+
+
+def _remember_wifi_values(values, now=None):
+    """Keep a bounded, memory-only TTL cache for no-coverage recovery."""
+    timestamp = time.monotonic() if now is None else float(now)
+    normalized = []
+    for value in values:
+        bssid = _bssid_to_int(value)
+        if bssid is not None:
+            normalized.append(bssid)
+    if not normalized:
+        return 0
+    with _recent_wifi_lock:
+        cutoff = timestamp - RECENT_WIFI_TTL
+        while _recent_wifi:
+            _key, seen = next(iter(_recent_wifi.items()))
+            if seen >= cutoff:
+                break
+            _recent_wifi.popitem(last=False)
+        for bssid in normalized:
+            _recent_wifi.pop(bssid, None)
+            _recent_wifi[bssid] = timestamp
+        while len(_recent_wifi) > RECENT_WIFI_MAX:
+            _recent_wifi.popitem(last=False)
+    return len(normalized)
+
+
+def remember_wloc_wifi(request_body=None, response_body=None, now=None):
+    """Learn BSSID identities in RAM; never persist coordinates or bodies."""
+    values = set()
+    if request_body:
+        try:
+            values.update(gx.parse_request_context(request_body)["wifi_bssids"])
+        except (KeyError, TypeError, ValueError):
+            pass
+    if response_body:
+        try:
+            values.update(
+                entry["bssid"]
+                for entry in gx.decode_response(response_body)
+                if entry["kind"] == "wifi" and entry["bssid"]
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+    return _remember_wifi_values(values, now=now)
+
+
+def recent_wifi_values(now=None):
+    timestamp = time.monotonic() if now is None else float(now)
+    with _recent_wifi_lock:
+        cutoff = timestamp - RECENT_WIFI_TTL
+        while _recent_wifi:
+            _key, seen = next(iter(_recent_wifi.items()))
+            if seen >= cutoff:
+                break
+            _recent_wifi.popitem(last=False)
+        return list(_recent_wifi.keys())
+
+
+def build_no_coverage_tile(target_lat, target_lon, now=None):
+    values = recent_wifi_values(now=now)
+    if not values:
+        return b"", 0
+    return wx.build_synthetic_wifi_tile(values, target_lat, target_lon)
+
+
+def remember_wifi_template(payload, now=None):
+    """Cache one complete Apple WifiTile in memory for no-coverage targets."""
+    payload = bytes(payload)
+    if not payload or len(payload) > MAX_DECOMPRESSED_BODY:
+        raise ValueError("WifiTile template has invalid size")
+    count = len(wx.decode_locations(payload))
+    if count == 0:
+        raise ValueError("WifiTile template has no recognized devices")
+    timestamp = time.monotonic() if now is None else float(now)
+    with _wifi_template_lock:
+        _wifi_template_cache["payload"] = payload
+        _wifi_template_cache["seen"] = timestamp
+    return count
+
+
+def recent_wifi_template(now=None):
+    timestamp = time.monotonic() if now is None else float(now)
+    with _wifi_template_lock:
+        payload = _wifi_template_cache["payload"]
+        seen = _wifi_template_cache["seen"]
+        if payload is None or seen is None or timestamp - seen > WIFI_TEMPLATE_TTL:
+            _wifi_template_cache["payload"] = None
+            _wifi_template_cache["seen"] = None
+            return None
+        return payload
+
+
+def build_template_coverage_tile(target_lat, target_lon, now=None):
+    payload = recent_wifi_template(now=now)
+    if payload is None:
+        return b"", 0, None
+    return wx.translate_wifi_tile(payload, target_lat, target_lon)
 
 
 def load_jitter_seed():
@@ -261,8 +394,8 @@ def is_wloc_request(host, method, path):
     )
 
 
-def rewrite_wifi_tile_response(body, content_encoding, lat, lon):
-    """Translate a WifiTile body while preserving encoding and AP geometry."""
+def decode_wifi_tile_payload(body, content_encoding):
+    """Return a bounded uncompressed WifiTile plus its transport encoding."""
     encoding = (content_encoding or "").strip().lower()
     if encoding in {"", "identity"}:
         plain = body
@@ -273,6 +406,15 @@ def rewrite_wifi_tile_response(body, content_encoding, lat, lon):
             raise ValueError("WifiTile decompressed body too large")
     else:
         raise ValueError("unsupported WifiTile content encoding: %s" % encoding)
+    if len(plain) > MAX_DECOMPRESSED_BODY:
+        raise ValueError("WifiTile decompressed body too large")
+    return plain, encoding
+
+
+def rewrite_wifi_tile_response(body, content_encoding, lat, lon):
+    """Translate a WifiTile body while preserving encoding and AP geometry."""
+    plain, encoding = decode_wifi_tile_payload(body, content_encoding)
+    remember_wifi_template(plain)
 
     replacement, count, anchor = wx.translate_wifi_tile(plain, lat, lon)
     if count == 0:
@@ -426,6 +568,23 @@ def build_upstream_request(host, request_line, header_lines, body):
     return head.encode("latin1") + body
 
 
+def replace_request_header(header_lines, name, value):
+    """Replace one request header while removing duplicate copies."""
+    wanted = name.lower()
+    replaced = False
+    result = []
+    for line in header_lines:
+        if ":" in line and line.split(":", 1)[0].strip().lower() == wanted:
+            if not replaced:
+                result.append("%s: %s" % (name, value))
+                replaced = True
+            continue
+        result.append(line)
+    if not replaced:
+        result.append("%s: %s" % (name, value))
+    return result
+
+
 def fetch_upstream(host, request_line, header_lines, body):
     ctx = ssl.create_default_context()
     if UPSTREAM_INSECURE:
@@ -457,6 +616,21 @@ def fetch_upstream(host, request_line, header_lines, body):
             if tls is None:
                 _safe_close(raw)
     raise last_error
+
+
+def fetch_seed_wifi_template(host, request_line, header_lines, body):
+    """Fetch one known-valid public tile when the requested region has none."""
+    if not WIFI_SEED_TILEKEY:
+        raise ValueError("WifiTile seed key disabled")
+    seed_headers = replace_request_header(
+        header_lines, "X-tilekey", WIFI_SEED_TILEKEY
+    )
+    status_line, response_lines, headers, response_body = fetch_upstream(
+        host, request_line, seed_headers, body
+    )
+    if status_line.split(" ")[1:2] != ["200"]:
+        raise ValueError("WifiTile seed returned non-200")
+    return status_line, response_lines, headers, response_body
 
 
 def read_final_response(reader):
@@ -567,6 +741,7 @@ def handle(conn, addr, ctx):
         status_line, up_header_lines, up_headers, resp_body = fetch_upstream(
             origin, request_line, header_lines, body
         )
+        status_code = int(status_line.split(" ", 2)[1])
         if not modifier_active:
             tls.sendall(build_response(
                 status_line, up_header_lines, up_headers, resp_body
@@ -584,17 +759,29 @@ def handle(conn, addr, ctx):
                    up_headers.get("content-type", "-"),
                    up_headers.get("content-encoding", "identity"),
                    len(body), len(resp_body)))
+        if is_wloc_request(upstream, method, path):
+            remember_wloc_wifi(
+                request_body=body,
+                response_body=resp_body if status_code == 200 else None,
+            )
         rewritten = False
         strip_content_encoding = False
         count = 0
         if (
             is_wloc_request(upstream, method, path)
-            and status_line.split(" ")[1:2] == ["200"]
+            and status_code == 200
         ):
             try:
                 lat, lon, acc = active_target()
+                prepared_body, nofix_original, nofix_prepared = (
+                    gx.supplement_sparse_no_fix_response(
+                        resp_body,
+                        recent_wifi_values(),
+                        minimum_locations=NO_FIX_MIN_LOCATIONS,
+                    )
+                )
                 new_body, count, anchor, anchor_source = gx.translate_response(
-                    resp_body,
+                    prepared_body,
                     lat,
                     lon,
                     request_body=body,
@@ -605,9 +792,19 @@ def handle(conn, addr, ctx):
                     rewritten = True
                     strip_content_encoding = True
                     anchor_state = "present" if anchor is not None else "none"
-                    log("TRANSLATE host=%s path=%s locations=%d anchor=%s source=%s bytes=%d"
-                        % (upstream, operational_path(path), count, anchor_state,
-                           anchor_source, len(new_body)))
+                    if anchor_source == gx.NO_FIX_SOURCE:
+                        if nofix_prepared > nofix_original:
+                            log("TRANSLATE_NOFIX_STABILIZED host=%s path=%s original=%d locations=%d bytes=%d"
+                                % (upstream, operational_path(path), nofix_original,
+                                   count, len(new_body)))
+                        else:
+                            log("TRANSLATE_NOFIX_CLUSTER host=%s path=%s locations=%d bytes=%d"
+                                % (upstream, operational_path(path), count,
+                                   len(new_body)))
+                    else:
+                        log("TRANSLATE host=%s path=%s locations=%d anchor=%s source=%s bytes=%d"
+                            % (upstream, operational_path(path), count, anchor_state,
+                               anchor_source, len(new_body)))
                 elif anchor_source == gx.NO_FIX_SOURCE:
                     # Non-empty sentinel batches are synthesized above and have
                     # count > 0. This branch is the proven empty no-fix response;
@@ -630,10 +827,89 @@ def handle(conn, addr, ctx):
                     return
                 log("TRANSLATE_SKIP host=%s err=%r (returned real response)" % (upstream, exc))
 
-        if (
-            is_wifi_tile_request(upstream, method, path)
-            and status_line.split(" ")[1:2] == ["200"]
-        ):
+        tile_request = is_wifi_tile_request(upstream, method, path)
+        if tile_request and status_code == 404:
+            tile_count = 0
+            target = None
+            try:
+                lat, lon, _acc = active_target()
+                target = (lat, lon)
+            except Exception as exc:
+                log("WIFITILE_TARGET_SKIP host=%s err=%r (returned upstream 404)"
+                    % (upstream, exc))
+            try:
+                if target is None:
+                    raise ValueError("active target unavailable")
+                new_body, tile_count, _tile_anchor = build_template_coverage_tile(*target)
+                if tile_count > 0:
+                    resp_body = new_body
+                    status_line = "HTTP/1.1 200 OK"
+                    up_header_lines = [
+                        "Content-Type: application/octet-stream",
+                        "Cache-Control: max-age=120",
+                    ]
+                    up_headers = {"content-type": "application/octet-stream"}
+                    rewritten = True
+                    strip_content_encoding = True
+                    count += tile_count
+                    log("WIFITILE_TEMPLATE_404 host=%s source=cache devices=%d bytes=%d"
+                        % (upstream, tile_count, len(new_body)))
+            except Exception as exc:
+                log("WIFITILE_TEMPLATE_CACHE_SKIP host=%s err=%r"
+                    % (upstream, exc))
+
+            if tile_count == 0 and target is not None:
+                try:
+                    seed_status, seed_lines, seed_headers, seed_body = (
+                        fetch_seed_wifi_template(
+                            origin, request_line, header_lines, body
+                        )
+                    )
+                    new_body, tile_count, _tile_anchor = rewrite_wifi_tile_response(
+                        seed_body,
+                        seed_headers.get("content-encoding", ""),
+                        target[0],
+                        target[1],
+                    )
+                    if tile_count > 0:
+                        resp_body = new_body
+                        status_line = seed_status
+                        up_header_lines = seed_lines
+                        up_headers = seed_headers
+                        rewritten = True
+                        strip_content_encoding = False
+                        count += tile_count
+                        log("WIFITILE_TEMPLATE_404 host=%s source=seed devices=%d bytes=%d"
+                            % (upstream, tile_count, len(new_body)))
+                except Exception as exc:
+                    log("WIFITILE_TEMPLATE_SEED_SKIP host=%s err=%r"
+                        % (upstream, exc))
+
+            if tile_count == 0 and target is not None:
+                try:
+                    new_body, tile_count = build_no_coverage_tile(*target)
+                    if tile_count > 0:
+                        resp_body = new_body
+                        status_line = "HTTP/1.1 200 OK"
+                        up_header_lines = [
+                            "Content-Type: application/octet-stream",
+                            "Cache-Control: max-age=120",
+                        ]
+                        up_headers = {"content-type": "application/octet-stream"}
+                        rewritten = True
+                        strip_content_encoding = True
+                        count += tile_count
+                        log("WIFITILE_SYNTHETIC_404 host=%s devices=%d bytes=%d"
+                            % (upstream, tile_count, len(new_body)))
+                    else:
+                        log("WIFITILE_SYNTHETIC_EMPTY host=%s (returned upstream 404)"
+                            % upstream)
+                except Exception as exc:
+                    # Optional fallbacks must not turn an honest upstream 404
+                    # into a broader location outage.
+                    log("WIFITILE_SYNTHETIC_SKIP host=%s err=%r (returned upstream 404)"
+                        % (upstream, exc))
+        elif tile_request and status_code == 200:
             try:
                 lat, lon, _acc = active_target()
                 new_body, tile_count, tile_anchor = rewrite_wifi_tile_response(

@@ -62,6 +62,19 @@ def parse_coordinates(value):
     )
 
 
+def _validate_jitter(value, name):
+    if not isinstance(value, dict):
+        raise PresetError("%s 必须是对象" % name)
+    if set(value) - {"enabled", "radius_m", "period_s"}:
+        raise PresetError("%s 包含未知字段" % name)
+    if "enabled" in value and not isinstance(value["enabled"], bool):
+        raise PresetError("%s.enabled 必须是布尔值" % name)
+    if "radius_m" in value:
+        _number(value["radius_m"], "%s.radius_m" % name, 0, 100)
+    if "period_s" in value:
+        _number(value["period_s"], "%s.period_s" % name, 30, 3600)
+
+
 def validate(data):
     if not isinstance(data, dict):
         raise PresetError("地点配置必须是对象")
@@ -74,17 +87,7 @@ def validate(data):
     if not isinstance(active, str) or active not in presets:
         raise PresetError("active 必须指向现有地点")
     _number(data.get("default_accuracy_m", 25), "default_accuracy_m", 0.1, 100000)
-    jitter = data.get("jitter", {})
-    if not isinstance(jitter, dict):
-        raise PresetError("jitter 必须是对象")
-    if set(jitter) - {"enabled", "radius_m", "period_s"}:
-        raise PresetError("jitter 包含未知字段")
-    if "enabled" in jitter and not isinstance(jitter["enabled"], bool):
-        raise PresetError("jitter.enabled 必须是布尔值")
-    if "radius_m" in jitter:
-        _number(jitter["radius_m"], "jitter.radius_m", 0, 100)
-    if "period_s" in jitter:
-        _number(jitter["period_s"], "jitter.period_s", 30, 3600)
+    _validate_jitter(data.get("jitter", {}), "jitter")
     for key, entry in presets.items():
         if not isinstance(key, str) or not KEY_RE.fullmatch(key):
             raise PresetError("地点键不合法：%r" % key)
@@ -102,6 +105,8 @@ def validate(data):
             0.1,
             100000,
         )
+        if "jitter" in entry:
+            _validate_jitter(entry["jitter"], "%s.jitter" % key)
     return data
 
 
@@ -159,7 +164,7 @@ def build_advanced_config(base_config, catalog, rng=None):
             entry.get("random_radius_m"),
             rng=rng,
         )
-        output["presets"][key] = {
+        preset = {
             "label": validate_menu_label(entry.get("menu_label")),
             "menu_label": validate_menu_label(entry.get("menu_label")),
             "address": validate_address(entry.get("address")),
@@ -169,6 +174,10 @@ def build_advanced_config(base_config, catalog, rng=None):
             "datum": "wgs84",
             "randomized_at_install": True,
         }
+        if "jitter" in entry:
+            _validate_jitter(entry["jitter"], "%s.jitter" % key)
+            preset["jitter"] = copy.deepcopy(entry["jitter"])
+        output["presets"][key] = preset
     return validate(output)
 
 

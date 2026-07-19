@@ -61,7 +61,10 @@
       "address": "Kunlun Station, Antarctica",
       "center_lat": -80.4167,
       "center_lon": 77.1167,
-      "random_radius_m": 300
+      "random_radius_m": 300,
+      "jitter": {
+        "enabled": false
+      }
     }
   }
 }

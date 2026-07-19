@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from home_location_endpoint import location_picker, preset_manager
+from home_location_endpoint import gsloc_rewrite, location_picker, preset_manager
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,6 +63,23 @@ class PresetManagerTests(unittest.TestCase):
                 point["lat"], point["lon"],
             )
             self.assertLessEqual(distance, definition["random_radius_m"] + 0.5)
+
+    def test_antarctic_preset_disables_smooth_jitter(self):
+        config = preset_manager.build_advanced_config(
+            self.base_config(), self.catalog(), rng=random.Random(4)
+        )
+        preset = config["presets"]["kunlun_station"]
+        self.assertEqual(preset["jitter"], {"enabled": False})
+        self.assertEqual(
+            gsloc_rewrite.resolve_jitter(config, "kunlun_station"),
+            (0.0, config["jitter"]["period_s"]),
+        )
+
+    def test_per_preset_jitter_is_validated(self):
+        config = self.base_config()
+        config["presets"]["ip_city"]["jitter"] = {"enabled": "no"}
+        with self.assertRaisesRegex(preset_manager.PresetError, "布尔值"):
+            preset_manager.validate(config)
 
     def test_add_switch_delete_and_modifier_state_are_atomic(self):
         with tempfile.TemporaryDirectory() as temporary:

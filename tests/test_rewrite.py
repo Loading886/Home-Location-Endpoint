@@ -72,6 +72,41 @@ class WlocRewriteTests(unittest.TestCase):
         self.assertAlmostEqual(entry["lon"], target[1], places=7)
         self.assertEqual(entry["accuracy"], 25)
 
+    def test_sparse_antarctic_no_fix_uses_recent_real_wifi_identities(self):
+        target = (-80.4167, 77.1167)
+        body = gx.build_response([
+            gx.build_wifi("aa:bb:cc:dd:ee:01", gx.build_sentinel_location(-1))
+        ])
+        recent = [0x001122330000 + index for index in range(40)]
+        prepared, original, prepared_count = gx.supplement_sparse_no_fix_response(
+            body, recent, minimum_locations=32
+        )
+        replacement, count, anchor, source = gx.translate_response(
+            prepared, *target, accuracy=25
+        )
+        points = [
+            (entry["lat"], entry["lon"])
+            for entry in gx.decode_response(replacement)
+        ]
+        self.assertEqual((original, prepared_count), (1, 32))
+        self.assertEqual((count, anchor, source), (32, None, gx.NO_FIX_SOURCE))
+        self.assertEqual(len(set(points)), 32)
+        self.assertLessEqual(
+            max(distance_m(*target, *point) for point in points), 45.02
+        )
+
+    def test_sparse_supplement_never_changes_valid_or_empty_batches(self):
+        valid = gx.build_response([
+            gx.build_wifi("aa:bb:cc:dd:ee:01", gx.build_location(1, 2, 25))
+        ])
+        empty = gx.build_response([])
+        for body, expected in ((valid, 1), (empty, 0)):
+            prepared, original, prepared_count = gx.supplement_sparse_no_fix_response(
+                body, [0x001122334455], minimum_locations=32
+            )
+            self.assertEqual(prepared, body)
+            self.assertEqual((original, prepared_count), (expected, expected))
+
     def test_sentinel_cell_gets_plausible_cell_accuracy(self):
         target = (40.0, -74.0)
         body = gx.build_cell_response([
@@ -165,6 +200,24 @@ class WifiTileRewriteTests(unittest.TestCase):
         self.assertEqual(count, 2)
         self.assertAlmostEqual(points[2][0], -95.0, places=6)
         self.assertAlmostEqual(points[2][1], -118.05, places=6)
+
+    def test_synthetic_antarctic_tile_is_centered_bounded_and_deduplicated(self):
+        target = (-80.4167, 77.1167)
+        payload, count = wx.build_synthetic_wifi_tile(
+            [0x001122334455, 0x001122334456, 0x001122334455, "invalid"],
+            *target,
+        )
+        points = wx.decode_locations(payload)
+        self.assertEqual(count, 2)
+        self.assertEqual(len(set(points)), 2)
+        self.assertLessEqual(
+            max(distance_m(*target, *point) for point in points), 45.02
+        )
+        center = (
+            sum(point[0] for point in points) / len(points),
+            sum(point[1] for point in points) / len(points),
+        )
+        self.assertLess(distance_m(*target, *center), 0.02)
 
 
 def build_tile(points):

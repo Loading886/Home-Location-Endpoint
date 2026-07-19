@@ -143,6 +143,51 @@ def translate_wifi_tile(payload, target_lat, target_lon):
     return replacement, count, anchor
 
 
+def build_synthetic_wifi_tile(
+    bssid_values, target_lat, target_lon, radius_m=45.0
+):
+    """Build a minimal tile using only recent real Wi-Fi identities."""
+    values = set()
+    for value in bssid_values:
+        try:
+            integer = int(value)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= integer < (1 << 48):
+            values.add(integer)
+    values = sorted(values)
+    if not values:
+        return b"", 0
+
+    points = gx.synthetic_cluster_points(
+        [value.to_bytes(6, "big") for value in values],
+        (target_lat, target_lon),
+        radius_m=radius_m,
+    )
+    region = bytearray()
+    for bssid, (lat, lon) in zip(values, points):
+        location = (
+            gx.tag(LOCATION_LAT_FIELD, gx.WIRE_I32)
+            + _coordinate_bytes(lat)
+            + gx.tag(LOCATION_LON_FIELD, gx.WIRE_I32)
+            + _coordinate_bytes(lon)
+            + gx.tag(9, gx.WIRE_VARINT)
+            + gx.write_varint(77)
+        )
+        device = (
+            gx.tag(5, gx.WIRE_VARINT)
+            + gx.write_varint(bssid)
+            + gx.len_field(DEVICE_LOCATION_FIELD, location)
+        )
+        region += gx.len_field(REGION_DEVICE_FIELD, device)
+    payload = (
+        gx.tag(1, gx.WIRE_VARINT)
+        + gx.write_varint(9)
+        + gx.len_field(REGION_FIELD, bytes(region))
+    )
+    return payload, len(values)
+
+
 def decode_locations(payload):
     """Return decoded ``(lat, lon)`` pairs for diagnostics and tests."""
     locations = []

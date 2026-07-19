@@ -47,6 +47,10 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/m
 随机点使用密码学随机源，在各城市中心的保守半径内按面积均匀抽取。每台服务器独立生成，
 重复安装保留已有地点库；不会每次打开菜单就跳到另一个坐标。
 
+南极昆仑站仍会在安装时于站点附近生成独立随机中心，但不会启用每 120 秒的平滑微漂移。高纬
+地区的 Apple 数据可能只有少量 no-fix sentinel，或对精确 WifiTile 返回 404；拦截器会用近期
+真实出现过的 Wi-Fi 身份和纯内存模板生成稳定的 45 m 微型簇。缓存不会写盘，服务重启后清空。
+
 ## 权限与文件
 
 Bot 运行在独立的 `home-location-bot` 系统账号：

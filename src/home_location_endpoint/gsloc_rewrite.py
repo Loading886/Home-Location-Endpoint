@@ -529,6 +529,113 @@ def _cluster_offsets(entries, radius_m=NO_FIX_CLUSTER_RADIUS_M):
     }
 
 
+def synthetic_cluster_points(identities, target, radius_m=NO_FIX_CLUSTER_RADIUS_M):
+    """Create centered deterministic coordinates for opaque stable identities."""
+    identities = list(identities)
+    entries = [
+        {
+            "has_location": True,
+            "kind": "synthetic",
+            "bssid": repr(identity),
+            "cell_key": (index,),
+        }
+        for index, identity in enumerate(identities)
+    ]
+    offsets = _cluster_offsets(entries, radius_m=radius_m)
+    return [
+        offset_coordinate(
+            target[0], target[1], offsets[index][0], offsets[index][1]
+        )
+        for index in range(len(entries))
+    ]
+
+
+def _wifi_identity_bytes(value):
+    """Normalize a BSSID-like identity without retaining or displaying it."""
+    if isinstance(value, int):
+        if 0 <= value < (1 << 48):
+            return value.to_bytes(6, "big")
+        return None
+    if isinstance(value, bytes):
+        return value if len(value) == 6 else None
+    if isinstance(value, str):
+        raw = value.encode("latin1", errors="ignore")
+        if len(raw) == 6:
+            return raw
+        compact = "".join(
+            character for character in value
+            if character in "0123456789abcdefABCDEF"
+        )
+        if len(compact) == 12:
+            try:
+                return bytes.fromhex(compact)
+            except ValueError:
+                return None
+    return None
+
+
+def supplement_sparse_no_fix_response(
+    body,
+    wifi_identities,
+    minimum_locations=32,
+):
+    """Append recent real Wi-Fi identities to a sparse explicit no-fix batch.
+
+    The identities must come from this phone's recent WLOC traffic. Valid fixes,
+    malformed payloads and genuinely empty responses are left unchanged. Returns
+    ``(body, original_location_count, prepared_location_count)``.
+    """
+    minimum_locations = int(minimum_locations)
+    if minimum_locations < 1:
+        raise ValueError("invalid sparse no-fix minimum")
+
+    header, block = split_response(body)
+    declared = header_block_length(header)
+    if declared != len(block):
+        raise ValueError(
+            "header block-length %d != actual %d; framing assumption violated"
+            % (declared, len(block))
+        )
+    entries = decode_block(block)
+    original_count = sum(1 for entry in entries if entry["has_location"])
+    if (
+        original_count == 0
+        or original_count >= minimum_locations
+        or not _is_proven_no_fix(entries, block)
+    ):
+        return body, original_count, original_count
+
+    known = {
+        raw
+        for raw in (
+            _wifi_identity_bytes(entry.get("bssid")) for entry in entries
+        )
+        if raw is not None
+    }
+    additions = []
+    for value in reversed(list(wifi_identities or ())):
+        raw = _wifi_identity_bytes(value)
+        if raw is None or raw in known:
+            continue
+        known.add(raw)
+        additions.append(raw)
+        if original_count + len(additions) >= minimum_locations:
+            break
+    if not additions:
+        return body, original_count, original_count
+
+    new_block = bytearray(block)
+    sentinel = build_sentinel_location(-1)
+    for raw in additions:
+        new_block += len_field(WIFI_ENTRY_FIELD, build_wifi(raw, sentinel))
+    prepared_count = original_count + len(additions)
+    return (
+        _with_block_length(header, len(new_block)) + bytes(new_block),
+        original_count,
+        prepared_count,
+    )
+
+
 def synthesize_no_fix_block(block_bytes, target, accuracy=None):
     """Replace sentinel-only locations with a centered, non-degenerate cluster."""
     entries = decode_block(block_bytes)

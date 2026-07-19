@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.2 - 2026-07-19
+
+- Stabilize Antarctic and other sparse-coverage targets by supplementing only
+  proven sentinel-only WLOC batches with recent real Wi-Fi identities held in a
+  bounded ten-minute memory cache; unknown and malformed payloads still fail
+  closed.
+- Recover exact WifiTile 404 responses through a bounded in-memory complete-tile
+  cache, a known-valid public Apple seed tile, then a minimal tile built only from
+  recent real identities. If every optional recovery source is unavailable, the
+  original Apple 404 is returned unchanged.
+- Disable runtime micro-drift for the built-in Antarctic Kunlun Station preset,
+  while retaining its per-install random center and deterministic 45 m batch
+  geometry. No BSSID, coordinate, request body, or response body is persisted or
+  added to operational logs.
+
 ## 0.2.1 - 2026-07-19
 
 - Mark the Telegram controller healthy only after its first successful long

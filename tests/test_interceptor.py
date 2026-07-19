@@ -1,3 +1,4 @@
+import gzip
 import io
 import tempfile
 import unittest
@@ -5,9 +6,17 @@ from pathlib import Path
 from unittest import mock
 
 from home_location_endpoint import interceptor
+from home_location_endpoint import gsloc_rewrite as gx
+from home_location_endpoint import wifitile_rewrite as wx
 
 
 class InterceptorTests(unittest.TestCase):
+    def setUp(self):
+        with interceptor._recent_wifi_lock:
+            interceptor._recent_wifi.clear()
+        with interceptor._wifi_template_lock:
+            interceptor._wifi_template_cache.update(payload=None, seen=None)
+
     def test_modifier_state_defaults_active_and_accepts_pause(self):
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary) / "modifier.state"
@@ -183,6 +192,165 @@ class InterceptorTests(unittest.TestCase):
         status, _lines, _headers, body = interceptor.read_final_response(reader)
         self.assertEqual(status, "HTTP/1.1 200 OK")
         self.assertEqual(body, b"ok")
+
+    def test_recent_wifi_cache_is_memory_only_bounded_and_expires(self):
+        with (
+            mock.patch.object(interceptor, "RECENT_WIFI_MAX", 2),
+            mock.patch.object(interceptor, "RECENT_WIFI_TTL", 10),
+        ):
+            interceptor._remember_wifi_values(
+                ["00:11:22:33:44:51", "00:11:22:33:44:52", "00:11:22:33:44:53"],
+                now=1,
+            )
+            self.assertEqual(
+                interceptor.recent_wifi_values(now=2),
+                [0x001122334452, 0x001122334453],
+            )
+            self.assertEqual(interceptor.recent_wifi_values(now=12), [])
+
+    def test_complete_wifi_template_is_translated_then_expires(self):
+        payload = build_tile([(34.0, -118.0), (34.001, -117.999)])
+        with mock.patch.object(interceptor, "WIFI_TEMPLATE_TTL", 10):
+            self.assertEqual(interceptor.remember_wifi_template(payload, now=1), 2)
+            replacement, count, anchor = interceptor.build_template_coverage_tile(
+                -80.4167, 77.1167, now=2
+            )
+            self.assertEqual(count, 2)
+            self.assertIsNotNone(anchor)
+            self.assertEqual(len(wx.decode_locations(replacement)), 2)
+            self.assertIsNone(interceptor.recent_wifi_template(now=12))
+
+    def test_seed_request_replaces_duplicate_tile_keys(self):
+        captured = {}
+
+        def fake_fetch(host, request_line, header_lines, body):
+            captured["lines"] = header_lines
+            return (
+                "HTTP/1.1 200 OK",
+                ["Content-Type: application/octet-stream"],
+                {"content-type": "application/octet-stream"},
+                b"tile",
+            )
+
+        with mock.patch.object(interceptor, "fetch_upstream", side_effect=fake_fetch):
+            interceptor.fetch_seed_wifi_template(
+                interceptor.WIFI_TILE_GLOBAL_HOST,
+                "GET /wifi_request_tile HTTP/1.1",
+                ["X-tilekey: 1", "X-Test: keep", "X-tilekey: 2"],
+                b"",
+            )
+        tile_lines = [
+            line for line in captured["lines"]
+            if line.lower().startswith("x-tilekey:")
+        ]
+        self.assertEqual(tile_lines, ["X-tilekey: %s" % interceptor.WIFI_SEED_TILEKEY])
+        self.assertIn("X-Test: keep", captured["lines"])
+
+    def test_wifi_tile_404_falls_back_to_recent_real_identities(self):
+        interceptor._remember_wifi_values(
+            ["00:11:22:33:44:51", "00:11:22:33:44:52"]
+        )
+        conn = mock.Mock()
+        tls = mock.Mock()
+        tls.makefile.return_value = io.BytesIO(
+            b"GET /wifi_request_tile HTTP/1.1\r\n"
+            b"Host: gspe85-ssl.ls.apple.com\r\n"
+            b"X-tilekey: 999\r\n\r\n"
+        )
+        context = mock.Mock()
+        context.wrap_socket.return_value = tls
+        with (
+            mock.patch.object(interceptor, "modification_is_active", return_value=True),
+            mock.patch.object(
+                interceptor,
+                "fetch_upstream",
+                return_value=(
+                    "HTTP/1.1 404 Not Found",
+                    ["Content-Length: 0"],
+                    {"content-length": "0"},
+                    b"",
+                ),
+            ),
+            mock.patch.object(
+                interceptor, "fetch_seed_wifi_template", side_effect=OSError("offline")
+            ),
+            mock.patch.object(
+                interceptor, "active_target", return_value=(-80.4167, 77.1167, 25)
+            ),
+            mock.patch.object(interceptor, "log"),
+        ):
+            interceptor.handle(conn, ("127.0.0.1", 12345), context)
+
+        response = tls.sendall.call_args.args[0]
+        head, payload = response.split(b"\r\n\r\n", 1)
+        self.assertIn(b"HTTP/1.1 200 OK", head)
+        self.assertEqual(len(wx.decode_locations(payload)), 2)
+
+    def test_wifi_tile_404_seed_preserves_gzip_transport(self):
+        seed = build_tile([(51.48, -3.18), (51.481, -3.179)])
+        conn = mock.Mock()
+        tls = mock.Mock()
+        tls.makefile.return_value = io.BytesIO(
+            b"GET /wifi_request_tile HTTP/1.1\r\n"
+            b"Host: gspe85-ssl.ls.apple.com\r\n"
+            b"X-tilekey: 999\r\n\r\n"
+        )
+        context = mock.Mock()
+        context.wrap_socket.return_value = tls
+        with (
+            mock.patch.object(interceptor, "modification_is_active", return_value=True),
+            mock.patch.object(
+                interceptor,
+                "fetch_upstream",
+                return_value=(
+                    "HTTP/1.1 404 Not Found",
+                    ["Content-Length: 0"],
+                    {"content-length": "0"},
+                    b"",
+                ),
+            ),
+            mock.patch.object(
+                interceptor,
+                "fetch_seed_wifi_template",
+                return_value=(
+                    "HTTP/1.1 200 OK",
+                    [
+                        "Content-Type: application/octet-stream",
+                        "Content-Encoding: gzip",
+                    ],
+                    {
+                        "content-type": "application/octet-stream",
+                        "content-encoding": "gzip",
+                    },
+                    gzip.compress(seed, mtime=0),
+                ),
+            ),
+            mock.patch.object(
+                interceptor, "active_target", return_value=(-80.4167, 77.1167, 25)
+            ),
+            mock.patch.object(interceptor, "log"),
+        ):
+            interceptor.handle(conn, ("127.0.0.1", 12345), context)
+
+        response = tls.sendall.call_args.args[0]
+        head, payload = response.split(b"\r\n\r\n", 1)
+        self.assertIn(b"HTTP/1.1 200 OK", head)
+        self.assertIn(b"Content-Encoding: gzip", head)
+        self.assertEqual(len(wx.decode_locations(gzip.decompress(payload))), 2)
+
+
+def build_tile(points):
+    devices = bytearray()
+    for lat, lon in points:
+        location = (
+            gx.tag(wx.LOCATION_LAT_FIELD, gx.WIRE_I32)
+            + wx._coordinate_bytes(lat)
+            + gx.tag(wx.LOCATION_LON_FIELD, gx.WIRE_I32)
+            + wx._coordinate_bytes(lon)
+        )
+        device = gx.len_field(wx.DEVICE_LOCATION_FIELD, location)
+        devices += gx.len_field(wx.REGION_DEVICE_FIELD, device)
+    return gx.len_field(wx.REGION_FIELD, bytes(devices))
 
 
 if __name__ == "__main__":
