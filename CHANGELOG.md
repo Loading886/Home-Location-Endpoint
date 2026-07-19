@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.2.5 - 2026-07-19
+
+- Keep the bounded recent Wi-Fi identity cache warm for 30 minutes so sparse
+  no-fix recovery can converge after iOS eventually refreshes its device-side
+  location cache.
+- Make the recovery bounds explicit in the systemd unit and preserve Apple's
+  cache policy and validators on rewritten responses.
+- Lock in target-neutral template behavior: cached Apple tiles are retranslated
+  to the current preset on every use and are not cleared during a location switch.
+
 ## 0.2.4 - 2026-07-19
 
 - Uniformly compress valid WLOC and WifiTile response geometry into a 45 m
