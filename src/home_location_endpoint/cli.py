@@ -748,6 +748,31 @@ def _delete_group(name):
     return result.returncode == 0
 
 
+def _remove_group_membership(user, group):
+    try:
+        import grp
+        import pwd
+
+        pwd.getpwnam(user)
+        membership = grp.getgrnam(group).gr_mem
+    except KeyError:
+        return True
+    except ImportError:
+        return False
+    if user not in membership:
+        return True
+    try:
+        result = subprocess.run(
+            ["gpasswd", "-d", user, group],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 def _install_inventory():
     values = {}
     try:
@@ -869,6 +894,16 @@ def command_uninstall(args):
                 failures.append(str(path))
         if _systemctl("daemon-reload") != 0:
             failures.append("systemctl daemon-reload")
+
+        if (
+            advanced
+            and _inventory_flag(inventory, "HLE_ADDED_BOT_HOME_MEMBERSHIP")
+            and not _inventory_flag(inventory, "HLE_CREATED_BOT_USER")
+            and not _remove_group_membership(
+                "home-location-bot", "home-location"
+            )
+        ):
+            failures.append("home-location-bot membership in home-location")
 
         account_inventory = []
         if advanced:

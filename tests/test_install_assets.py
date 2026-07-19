@@ -25,6 +25,34 @@ class InstallAssetTests(unittest.TestCase):
         self.assertIsNotNone(package_version)
         self.assertEqual(project_version.group(1), package_version.group(1))
 
+    def test_bootstrap_and_published_commands_pin_the_release(self):
+        project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE)
+        release = re.search(
+            r'^RELEASE_VERSION="v([^"]+)"$', installer, re.MULTILINE
+        )
+        self.assertIsNotNone(version)
+        self.assertIsNotNone(release)
+        self.assertEqual(version.group(1), release.group(1))
+        self.assertIn(
+            'BOOTSTRAP_VERSION="${HLE_VERSION:-${RELEASE_VERSION}}"', installer
+        )
+        for relative in (
+            "README.md", "docs/ADVANCED.md", "docs/MODIFIER-ONLY.md",
+            "docs/OPERATIONS.md", "website/beginner.html",
+            "website/advanced.html", "website/prerequisites.html",
+            "website/telegram.html",
+        ):
+            content = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertNotIn("/main/install.sh", content)
+
+    def test_installer_tracks_supplemental_bot_membership(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("HLE_ADDED_BOT_HOME_MEMBERSHIP", installer)
+        self.assertIn("RUN_ADDED_BOT_HOME_MEMBERSHIP", installer)
+        self.assertIn("remove_bot_home_membership_added_this_run", installer)
+
     def test_installer_uses_only_one_managed_reality_target(self):
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")
         sni = re.search(r'^REALITY_SNI="([^"]+)"$', installer, re.MULTILINE)

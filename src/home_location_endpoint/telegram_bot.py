@@ -31,7 +31,7 @@ except ImportError:  # package import during tests and installer validation
 
 
 TOKEN_RE = re.compile(r"^[0-9]{6,20}:[A-Za-z0-9_-]{20,100}$")
-CHAT_RE = re.compile(r"^-?[0-9]{5,20}$")
+CHAT_RE = re.compile(r"^[0-9]{5,20}$")
 TOKEN_FILE = Path(os.environ.get(
     "HLE_TELEGRAM_TOKEN_FILE", "/etc/home-location-endpoint/telegram/token"
 ))
@@ -218,8 +218,14 @@ def validate_credentials(token, chat_id):
     if not isinstance(identity, dict) or not identity.get("is_bot"):
         raise BotError("token does not identify a Telegram bot")
     chat = api.call("getChat", {"chat_id": chat_id})
-    if not isinstance(chat, dict) or str(chat.get("id")) != chat_id:
-        raise BotError("chat ID is not accessible to this bot; send /start first")
+    if (
+        not isinstance(chat, dict)
+        or str(chat.get("id")) != chat_id
+        or chat.get("type") != "private"
+    ):
+        raise BotError(
+            "chat ID must identify an accessible private chat; send /start first"
+        )
     webhook = api.call("getWebhookInfo")
     if not isinstance(webhook, dict):
         raise BotError("Telegram returned invalid webhook information")
@@ -581,14 +587,24 @@ class LocationBot:
         if isinstance(callback, dict):
             message = callback.get("message") or {}
             chat = message.get("chat") or {}
-            if str(chat.get("id")) == self.chat_id:
+            sender = callback.get("from") or {}
+            if (
+                chat.get("type") == "private"
+                and str(chat.get("id")) == self.chat_id
+                and str(sender.get("id")) == self.chat_id
+            ):
                 self.handle_callback(callback)
             return
         message = update.get("message")
         if not isinstance(message, dict):
             return
         chat = message.get("chat") or {}
-        if str(chat.get("id")) != self.chat_id:
+        sender = message.get("from") or {}
+        if (
+            chat.get("type") != "private"
+            or str(chat.get("id")) != self.chat_id
+            or str(sender.get("id")) != self.chat_id
+        ):
             return
         text = message.get("text")
         if isinstance(text, str):

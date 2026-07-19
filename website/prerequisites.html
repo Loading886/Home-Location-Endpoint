@@ -57,8 +57,8 @@
       <li>落地机在 NAT / CGNAT 之后；</li>
       <li>客户端实际连接的是一台前置中转机（见下一节）。</li>
     </ul>
-    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
-  | sudo bash -s -- <span class="k">--mode</span> full <span class="k">--port</span> 443 <span class="k">--server</span> <span class="s">客户端实际连接的入口地址</span></pre></div>
+    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.3/install.sh \
+  | sudo env HLE_VERSION=v0.2.3 bash -s -- <span class="k">--mode</span> full <span class="k">--port</span> 443 <span class="k">--server</span> <span class="s">客户端实际连接的入口地址</span></pre></div>
     <div class="callout callout-tip"><span class="ico">✅</span><p>前后端<strong>端口保持一致</strong>最省心。安装器无法从落地机可靠推断云安全组、NAT 映射或前置机地址，所以这一步得你来定。</p></div>
   </div>
 </section>

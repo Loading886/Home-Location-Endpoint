@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.3 - 2026-07-19
+
 - Register a Telegram command menu beside the message field for one-tap access
   to the location controls and current status.
 - Match the Apple Relay controller's semantic button palette: blue for ordinary
@@ -14,6 +16,13 @@
   SS2022 URI and CA profile directly. Deliveries use validated bounded files and
   read-only handoff copies that do not expose the root credential store, Xray
   configuration, or leaf private key to the Bot.
+- Require the configured Telegram operator to be a positive private-chat ID and
+  verify both the chat and sender on every message and callback.
+- Record supplemental group membership added to pre-existing Bot accounts so a
+  failed install or later uninstall restores the host's original account state.
+- Pin bootstrap defaults and every published install command to the immutable
+  v0.2.3 release instead of following the mutable main branch.
+- Redirect the project website to HTTPS and publish HSTS on secure responses.
 
 ## 0.2.2 - 2026-07-19
 

@@ -45,13 +45,20 @@ if kind == "callback":
         "callback_query": {
             "id": "callback-%s" % update_id,
             "data": value,
-            "message": {"chat": {"id": int(chat_id)}},
+            "from": {"id": int(chat_id)},
+            "message": {
+                "chat": {"id": int(chat_id), "type": "private"},
+            },
         },
     }
 else:
     update = {
         "update_id": int(update_id),
-        "message": {"chat": {"id": int(chat_id)}, "text": value},
+        "message": {
+            "chat": {"id": int(chat_id), "type": "private"},
+            "from": {"id": int(chat_id)},
+            "text": value,
+        },
     }
 request = urllib.request.Request(
     url,

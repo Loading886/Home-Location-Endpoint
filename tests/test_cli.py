@@ -116,6 +116,50 @@ class CliTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "1"):
             self._run_modifier_uninstall({}, remove_ok=False)
 
+    def _run_advanced_uninstall(self, inventory):
+        def systemctl(*arguments):
+            return 1 if arguments[:2] == ("is-active", "--quiet") else 0
+
+        patches = [
+            mock.patch.object(cli.os, "geteuid", return_value=0, create=True),
+            mock.patch.object(cli.shutil, "which", return_value="/usr/bin/systemctl"),
+            mock.patch.object(cli, "_valid_installer_marker", return_value=True),
+            mock.patch.object(cli, "install_mode", return_value="advanced"),
+            mock.patch.object(cli, "_install_inventory", return_value=inventory),
+            mock.patch.object(cli, "operation_lock", return_value=nullcontext()),
+            mock.patch.object(cli, "_systemctl", side_effect=systemctl),
+            mock.patch.object(cli, "_remove_path", return_value=True),
+            mock.patch.object(cli, "_remove_group_membership", return_value=True),
+            mock.patch.object(cli, "_delete_user", return_value=True),
+            mock.patch.object(cli, "_delete_group", return_value=True),
+        ]
+        started = [patch.start() for patch in patches]
+        self.addCleanup(lambda: [patch.stop() for patch in reversed(patches)])
+        with redirect_stdout(io.StringIO()):
+            cli.command_uninstall(mock.Mock(yes=True))
+        return started[-3], started[-2], started[-1]
+
+    def test_uninstall_removes_installer_added_membership_from_preserved_bot(self):
+        remove_membership, delete_user, _delete_group = (
+            self._run_advanced_uninstall({
+                "HLE_ADDED_BOT_HOME_MEMBERSHIP": "1",
+            })
+        )
+        remove_membership.assert_called_once_with(
+            "home-location-bot", "home-location"
+        )
+        delete_user.assert_not_called()
+
+    def test_uninstall_does_not_separately_remove_membership_with_bot_user(self):
+        remove_membership, delete_user, _delete_group = (
+            self._run_advanced_uninstall({
+                "HLE_ADDED_BOT_HOME_MEMBERSHIP": "1",
+                "HLE_CREATED_BOT_USER": "1",
+            })
+        )
+        remove_membership.assert_not_called()
+        delete_user.assert_called_once_with("home-location-bot")
+
     def test_install_mode_rejects_corrupt_record(self):
         with tempfile.TemporaryDirectory() as temporary:
             etc = Path(temporary)

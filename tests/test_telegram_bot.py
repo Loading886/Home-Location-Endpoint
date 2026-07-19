@@ -62,6 +62,18 @@ class TelegramBotTests(unittest.TestCase):
             telegram_bot.validate_token("bad-token")
         with self.assertRaises(telegram_bot.BotError):
             telegram_bot.validate_chat_id("not-a-chat")
+        with self.assertRaises(telegram_bot.BotError):
+            telegram_bot.validate_chat_id("-1001234567890")
+
+    def test_credential_validation_requires_a_private_chat(self):
+        api = mock.Mock()
+        api.call.side_effect = [
+            {"id": 123456789, "is_bot": True, "username": "test_bot"},
+            {"id": int(CHAT_ID), "type": "group"},
+        ]
+        with mock.patch.object(telegram_bot, "Telegram", return_value=api):
+            with self.assertRaisesRegex(telegram_bot.BotError, "chat ID"):
+                telegram_bot.validate_credentials(TOKEN, CHAT_ID)
 
     def test_credential_validation_refuses_to_take_over_a_webhook_bot(self):
         api = mock.Mock()
@@ -376,9 +388,39 @@ class TelegramBotTests(unittest.TestCase):
         bot.api = FakeTelegram()
         bot.process_update({
             "update_id": 1,
-            "message": {"chat": {"id": 111111}, "text": "/menu"},
+            "message": {
+                "chat": {"id": 111111, "type": "private"},
+                "from": {"id": 111111},
+                "text": "/menu",
+            },
         })
         self.assertEqual(bot.api.calls, [])
+
+    def test_forged_sender_in_authorized_chat_is_ignored(self):
+        bot = telegram_bot.LocationBot(TOKEN, CHAT_ID)
+        bot.api = FakeTelegram()
+        bot.process_update({
+            "update_id": 1,
+            "message": {
+                "chat": {"id": int(CHAT_ID), "type": "private"},
+                "from": {"id": 111111},
+                "text": "/menu",
+            },
+        })
+        self.assertEqual(bot.api.calls, [])
+
+    def test_authorized_private_sender_is_processed(self):
+        bot = telegram_bot.LocationBot(TOKEN, CHAT_ID)
+        with mock.patch.object(bot, "handle_text") as handle_text:
+            bot.process_update({
+                "update_id": 1,
+                "message": {
+                    "chat": {"id": int(CHAT_ID), "type": "private"},
+                    "from": {"id": int(CHAT_ID)},
+                    "text": "/menu",
+                },
+            })
+        handle_text.assert_called_once_with("/menu")
 
 
 if __name__ == "__main__":

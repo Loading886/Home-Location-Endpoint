@@ -6,7 +6,8 @@ umask 022
 
 PROJECT="Home-Location-Endpoint"
 REPOSITORY="https://github.com/Loading886/Home-Location-Endpoint"
-BOOTSTRAP_VERSION="${HLE_VERSION:-main}"
+RELEASE_VERSION="v0.2.3"
+BOOTSTRAP_VERSION="${HLE_VERSION:-${RELEASE_VERSION}}"
 XRAY_VERSION="v26.3.27"
 XRAY_AMD64_SHA256="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
 XRAY_ARM64_SHA256="4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
@@ -55,12 +56,14 @@ CREATED_XRAY_USER=0
 CREATED_XRAY_GROUP=0
 CREATED_BOT_USER=0
 CREATED_BOT_GROUP=0
+ADDED_BOT_HOME_MEMBERSHIP=0
 RUN_CREATED_HOME_USER=0
 RUN_CREATED_HOME_GROUP=0
 RUN_CREATED_XRAY_USER=0
 RUN_CREATED_XRAY_GROUP=0
 RUN_CREATED_BOT_USER=0
 RUN_CREATED_BOT_GROUP=0
+RUN_ADDED_BOT_HOME_MEMBERSHIP=0
 BOT_WAS_ACTIVE=0
 BOT_WAS_ENABLED=0
 TEMP_DIRS=()
@@ -172,6 +175,14 @@ remove_account_created_this_run() {
     fi
 }
 
+remove_bot_home_membership_added_this_run() {
+    if [[ "${RUN_ADDED_BOT_HOME_MEMBERSHIP}" -eq 1 ]] \
+        && id -u home-location-bot >/dev/null 2>&1 \
+        && getent group home-location >/dev/null 2>&1; then
+        gpasswd -d home-location-bot home-location >/dev/null 2>&1 || true
+    fi
+}
+
 rollback_transaction() {
     local index path backup_path state
     printf '\n==> Installation failed; restoring the previous managed state\n' >&2
@@ -202,6 +213,7 @@ rollback_transaction() {
         restore_service_state home-location-telegram-bot.service \
             "${BOT_WAS_ACTIVE}" "${BOT_WAS_ENABLED}"
     fi
+    remove_bot_home_membership_added_this_run
     remove_account_created_this_run \
         home-location-bot home-location-bot \
         "${RUN_CREATED_BOT_USER}" "${RUN_CREATED_BOT_GROUP}"
@@ -412,12 +424,14 @@ load_existing_settings() {
         CREATED_XRAY_GROUP="${HLE_CREATED_XRAY_GROUP:-${CREATED_XRAY_GROUP}}"
         CREATED_BOT_USER="${HLE_CREATED_BOT_USER:-${CREATED_BOT_USER}}"
         CREATED_BOT_GROUP="${HLE_CREATED_BOT_GROUP:-${CREATED_BOT_GROUP}}"
+        ADDED_BOT_HOME_MEMBERSHIP="${HLE_ADDED_BOT_HOME_MEMBERSHIP:-${ADDED_BOT_HOME_MEMBERSHIP}}"
         PROXY_PROTOCOL="${HLE_PROXY_PROTOCOL:-vless-reality}"
         EXISTING_PROXY_PROTOCOL="${PROXY_PROTOCOL}"
         for inventory_flag in \
             SERVER_EXPLICIT CREATED_HOME_USER CREATED_HOME_GROUP \
             CREATED_XRAY_USER CREATED_XRAY_GROUP \
-            CREATED_BOT_USER CREATED_BOT_GROUP; do
+            CREATED_BOT_USER CREATED_BOT_GROUP \
+            ADDED_BOT_HOME_MEMBERSHIP; do
             case "${!inventory_flag}" in
                 0|1) ;;
                 *) die "invalid installation inventory flag: ${inventory_flag}" ;;
@@ -931,6 +945,7 @@ ensure_system_account() {
 }
 
 create_accounts_and_directories() {
+    local home_group_id
     ensure_system_account \
         home-location home-location \
         CREATED_HOME_USER CREATED_HOME_GROUP \
@@ -951,7 +966,13 @@ create_accounts_and_directories() {
             home-location-bot home-location-bot \
             CREATED_BOT_USER CREATED_BOT_GROUP \
             RUN_CREATED_BOT_USER RUN_CREATED_BOT_GROUP
-        usermod -a -G home-location home-location-bot
+        home_group_id="$(getent group home-location | cut -d: -f3)"
+        if ! id -G home-location-bot | tr ' ' '\n' \
+            | grep -Fxq "${home_group_id}"; then
+            usermod -a -G home-location home-location-bot
+            ADDED_BOT_HOME_MEMBERSHIP=1
+            RUN_ADDED_BOT_HOME_MEMBERSHIP=1
+        fi
         install -d -o root -g home-location-bot -m 0750 "${ETC_DIR}/telegram"
         install -d -o home-location-bot -g home-location -m 0750 \
             "${STATE_DIR}/control"
@@ -1288,6 +1309,8 @@ render_and_validate() {
         printf 'HLE_CREATED_XRAY_GROUP=%q\n' "${CREATED_XRAY_GROUP}"
         printf 'HLE_CREATED_BOT_USER=%q\n' "${CREATED_BOT_USER}"
         printf 'HLE_CREATED_BOT_GROUP=%q\n' "${CREATED_BOT_GROUP}"
+        printf 'HLE_ADDED_BOT_HOME_MEMBERSHIP=%q\n' \
+            "${ADDED_BOT_HOME_MEMBERSHIP}"
         printf 'HLE_PROXY_PROTOCOL=%q\n' "${PROXY_PROTOCOL}"
         if [[ "${PROXY_PROTOCOL}" == "vless-reality" ]]; then
             printf 'HLE_REALITY_SNI=%q\n' "${REALITY_SNI}"
@@ -1326,6 +1349,9 @@ write_common_mode_state() {
             printf 'HLE_CREATED_HOME_GROUP=%q\n' "${CREATED_HOME_GROUP}"
             printf 'HLE_CREATED_XRAY_USER=%q\n' 0
             printf 'HLE_CREATED_XRAY_GROUP=%q\n' 0
+            printf 'HLE_CREATED_BOT_USER=%q\n' 0
+            printf 'HLE_CREATED_BOT_GROUP=%q\n' 0
+            printf 'HLE_ADDED_BOT_HOME_MEMBERSHIP=%q\n' 0
         } > "${ETC_DIR}/install.env"
         chmod 0600 "${ETC_DIR}/install.env"
         printf 'mode=%s\n' "${MODE}" > "${MARKER}"
