@@ -120,8 +120,13 @@ def rewrite_wifi_tile(payload, lat, lon):
     return _rewrite_wifi_tile(payload, lambda _old_lat, _old_lon: (lat, lon))
 
 
-def translate_wifi_tile(payload, target_lat, target_lon):
-    """Translate a tile to the target while retaining its local AP geometry."""
+def translate_wifi_tile(
+    payload,
+    target_lat,
+    target_lon,
+    radius_m=gx.TRANSLATED_CLUSTER_RADIUS_M,
+):
+    """Translate and uniformly compress a tile around the target."""
     locations = [
         item for item in decode_locations(payload)
         if -90 <= item[0] <= 90 and -180 <= item[1] <= 180
@@ -133,10 +138,11 @@ def translate_wifi_tile(payload, target_lat, target_lon):
         statistics.median(item[0] for item in locations),
         statistics.median(item[1] for item in locations),
     )
+    scale = gx.bounded_geometry_scale(locations, anchor, radius_m)
 
     def transform(lat, lon):
-        return gx.translate_coordinate(
-            lat, lon, anchor[0], anchor[1], target_lat, target_lon
+        return gx.translate_coordinate_scaled(
+            lat, lon, anchor, (target_lat, target_lon), scale
         )
 
     replacement, count = _rewrite_wifi_tile(payload, transform)

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.2.4 - 2026-07-19
+
+- Uniformly compress valid WLOC and WifiTile response geometry into a 45 m
+  radius around the effective target, preventing Apple kilometre-scale hotspot
+  tiles from placing iOS hundreds of metres away from the selected location.
+- Preserve relative hotspot structure and leave already-small geometry at its
+  original scale; sentinel, malformed-response, and no-coverage fail-closed
+  behavior remains unchanged.
+
 ## 0.2.3 - 2026-07-19
 
 - Register a Telegram command menu beside the message field for one-tap access

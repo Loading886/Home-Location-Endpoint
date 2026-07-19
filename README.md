@@ -36,10 +36,12 @@
 - 只路由 Apple 网络定位域名到本机拦截器；其他域名不会经过定位拦截器。
 - 保留 Apple 返回批次内的相对几何关系，并在选定中心周围做平滑的 8 m 微漂移；南极昆仑站
   因高纬稀疏覆盖关闭运行时漂移，保持安装时生成的固定中心。
-- 对已确认的全 sentinel 无定位批次，生成目标点周围最大 45 m 的稳定坐标簇；单条记录使用
+- 对正常 WLOC/WifiTile 几何做统一平移，并把公里级热点批次等比例压缩到目标周围最大 45 m；
+  已小于 45 m 的相对结构不会被放大。对已确认的全 sentinel 无定位批次，生成目标点周围最大
+  45 m 的稳定坐标簇；单条记录使用
   目标坐标，蜂窝记录使用至少 1000 m 精度，未知或畸形批次仍失败关闭。
 - 对高纬无覆盖区常见的稀疏 sentinel 和精确 WifiTile 404，使用有 TTL、有限额的纯内存恢复链；
-  只复用手机近期请求中真实出现的 Wi-Fi 身份，或平移完整 Apple 模板，不记录或持久化原始内容。
+  只复用手机近期请求中真实出现的 Wi-Fi 身份，或平移并限幅完整 Apple 模板，不记录或持久化原始内容。
 - 自动生成 iOS CA 描述文件；CA 私钥签发完成后立即删除。
 - 安装与升级使用互斥锁、预检查和文件级事务；服务或完整性检查失败会恢复先前受管状态。
 - 对鉴权失败的 REALITY fallback 使用每次安装随机化的双向限速参数，降低被扫描后滥用的风险。
@@ -81,8 +83,8 @@ Home-Location-Endpoint landing server
 交互安装会询问选择新手、进阶或高手模式；项目推荐选择进阶模式（输入 `2`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.3/install.sh \
-  | sudo env HLE_VERSION=v0.2.3 bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.4/install.sh \
+  | sudo env HLE_VERSION=v0.2.4 bash
 ```
 
 代理模式要求服务器上没有不受本项目管理的 Xray 配置；高手模式可以与用户现有代理核心共存。
@@ -92,16 +94,16 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v
 无人值守安装完整模式：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.3/install.sh \
-  | sudo env HLE_VERSION=v0.2.3 bash -s -- --mode full --port 443
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.4/install.sh \
+  | sudo env HLE_VERSION=v0.2.4 bash -s -- --mode full --port 443
 ```
 
 无人值守安装进阶模式（建议为此节点创建专用 Bot，并先向 Bot 发送 `/start`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.3/install.sh \
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.4/install.sh \
   | sudo env \
-      HLE_VERSION=v0.2.3 \
+      HLE_VERSION=v0.2.4 \
       HLE_TELEGRAM_BOT_TOKEN='BOT_TOKEN' \
       HLE_TELEGRAM_CHAT_ID='NUMERIC_CHAT_ID' \
       bash -s -- --mode advanced --protocol ss2022 --port 443
@@ -114,8 +116,8 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v
 无人值守安装仅定位模式：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.3/install.sh \
-  | sudo env HLE_VERSION=v0.2.3 bash -s -- --mode modifier-only
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.4/install.sh \
+  | sudo env HLE_VERSION=v0.2.4 bash -s -- --mode modifier-only
 ```
 
 VLESS 模式使用安装器内置且统一管理的 REALITY SNI/target。安装时会从落地服务器现场检查证书

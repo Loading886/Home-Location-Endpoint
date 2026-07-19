@@ -13,9 +13,9 @@ class WlocRewriteTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "too many fields"):
                 gx.parse_fields(message * 3)
 
-    def test_translation_preserves_batch_geometry(self):
+    def test_translation_preserves_small_batch_geometry(self):
         first = gx.build_wifi("aa:bb:cc:dd:ee:01", gx.build_location(34.0000, -118.0000, 30))
-        second = gx.build_wifi("aa:bb:cc:dd:ee:02", gx.build_location(34.0010, -117.9980, 40))
+        second = gx.build_wifi("aa:bb:cc:dd:ee:02", gx.build_location(34.0001, -117.9998, 40))
         body = gx.build_response([first, second])
         replacement, count, anchor, source = gx.translate_response(body, 40.0, -74.0)
         decoded = gx.decode_response(replacement)
@@ -23,11 +23,41 @@ class WlocRewriteTests(unittest.TestCase):
         self.assertEqual(count, 2)
         self.assertEqual(source, "response-median")
         self.assertIsNotNone(anchor)
-        self.assertAlmostEqual(decoded[1]["lat"] - decoded[0]["lat"], 0.001, places=7)
-        expected_lon_delta = 0.002 * math.cos(math.radians(34.0005)) / math.cos(math.radians(40.0))
+        self.assertAlmostEqual(decoded[1]["lat"] - decoded[0]["lat"], 0.0001, places=7)
+        expected_lon_delta = 0.0002 * math.cos(math.radians(34.00005)) / math.cos(math.radians(40.0))
         self.assertAlmostEqual(decoded[1]["lon"] - decoded[0]["lon"], expected_lon_delta, places=7)
         _header, block = gx.split_response(replacement)
         self.assertEqual(gx.header_block_length(replacement[:10]), len(block))
+
+    def test_far_valid_geometry_is_uniformly_compressed(self):
+        target = (40.0, -74.0)
+        source = (34.0, -118.0)
+        north = (
+            source[0] + math.degrees(1000.0 / gx.EARTH_RADIUS_M),
+            source[1],
+        )
+        east = (
+            source[0],
+            source[1]
+            + math.degrees(
+                500.0
+                / (gx.EARTH_RADIUS_M * math.cos(math.radians(source[0])))
+            ),
+        )
+        body = gx.build_response([
+            gx.build_wifi("aa:bb:cc:dd:ee:01", gx.build_location(*source, 25)),
+            gx.build_wifi("aa:bb:cc:dd:ee:02", gx.build_location(*north, 25)),
+            gx.build_wifi("aa:bb:cc:dd:ee:03", gx.build_location(*east, 25)),
+        ])
+        replacement, count, _anchor, _source = gx.translate_response(body, *target)
+        points = [
+            (entry["lat"], entry["lon"])
+            for entry in gx.decode_response(replacement)
+        ]
+        distances = [distance_m(*target, *point) for point in points]
+        self.assertEqual(count, 3)
+        self.assertLessEqual(max(distances), gx.TRANSLATED_CLUSTER_RADIUS_M + 0.02)
+        self.assertLess(abs(distances[1] / distances[2] - 2.0), 0.01)
 
     def test_all_sentinel_batch_becomes_centered_non_degenerate_cluster(self):
         target = (40.0, -74.0)
@@ -173,14 +203,59 @@ class WlocRewriteTests(unittest.TestCase):
 
 
 class WifiTileRewriteTests(unittest.TestCase):
-    def test_wifi_tile_geometry_is_translated(self):
-        payload = build_tile([(34.0, -118.0), (34.002, -117.997)])
+    def test_wifi_tile_geometry_is_translated_and_bounded(self):
+        target = (40.0, -74.0)
+        payload = build_tile([(34.0, -118.0), (34.009, -117.99475)])
         replacement, count, anchor = wx.translate_wifi_tile(payload, 40.0, -74.0)
         points = wx.decode_locations(replacement)
         self.assertEqual(count, 2)
         self.assertIsNotNone(anchor)
-        self.assertAlmostEqual(points[1][0] - points[0][0], 0.002, places=6)
         self.assertNotEqual(points[0], points[1])
+        self.assertLessEqual(
+            max(distance_m(*target, *point) for point in points),
+            gx.TRANSLATED_CLUSTER_RADIUS_M + 0.02,
+        )
+
+    def test_wifi_tile_small_geometry_is_not_expanded(self):
+        target = (40.0, -74.0)
+        second = gx.offset_coordinate(34.0, -118.0, 10.0, 5.0)
+        payload = build_tile([(34.0, -118.0), second])
+        replacement, count, _anchor = wx.translate_wifi_tile(payload, *target)
+        points = wx.decode_locations(replacement)
+        self.assertEqual(count, 2)
+        self.assertLess(
+            abs(distance_m(*points[0], *points[1]) - math.hypot(10.0, 5.0)),
+            0.1,
+        )
+
+    def test_wifi_tile_representative_large_batch_stays_within_target_radius(self):
+        source = (34.0, -118.0)
+        target = (40.0, -74.0)
+        points = []
+        for index in range(469):
+            radius = 1430.0 * ((index + 1) / 469.0) ** 0.78
+            angle = index * 2.399963229728653
+            north = radius * math.cos(angle)
+            east = radius * math.sin(angle)
+            points.append((
+                source[0] + math.degrees(north / gx.EARTH_RADIUS_M),
+                source[1]
+                + math.degrees(
+                    east
+                    / (gx.EARTH_RADIUS_M * math.cos(math.radians(source[0])))
+                ),
+            ))
+
+        replacement, count, _anchor = wx.translate_wifi_tile(
+            build_tile(points), *target
+        )
+        translated = wx.decode_locations(replacement)
+        self.assertEqual(count, 469)
+        self.assertEqual(len(translated), 469)
+        self.assertLessEqual(
+            max(distance_m(*target, *point) for point in translated),
+            gx.TRANSLATED_CLUSTER_RADIUS_M + 0.02,
+        )
 
     def test_wifi_tile_no_fix_marker_is_preserved_not_translated(self):
         # A tile mixing a real AP with a (-180,-180) no-fix marker must not raise
