@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home-Location-Endpoint · Apple 网络定位修改端点</title>
+<meta name="description" content="把一台 Linux 落地机部署为 Apple 网络定位修改端点。支持完整代理、Telegram 多地点控制和仅定位修改器三种模式，并对南极等高纬稀疏覆盖区做稳定化处理。">
+<link rel="preload" href="/assets/style.css?v=3" as="style">
+<link rel="stylesheet" href="/assets/style.css?v=3">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="/">
+      <svg class="pin" viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>
+      Home-Location-Endpoint
+    </a>
+    <button class="nav-toggle" aria-label="菜单">☰</button>
+    <div class="nav-links">
+      <a href="/#how">工作原理</a>
+      <a href="/#modes">三种模式</a>
+      <a href="/beginner.html">新手教程</a>
+      <a href="/telegram.html">进阶控制</a>
+      <a href="/advanced.html">高手对接</a>
+      <a href="/prerequisites.html">前置配置</a>
+      <a class="cta" href="https://github.com/Loading886/Home-Location-Endpoint" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <span class="eyebrow">◆ 开源 · MIT · 自托管 · v0.2.2</span>
+    <h1>一键脚本<br>更改iPhone手机定位</h1>
+    <p class="lead">iPhone 通过全隧道连接你自己的落地机。普通流量原样直连，<strong>只有</strong> Apple 网络定位请求被改写；可选择一键完整节点、Telegram 多地点控制，或只把定位修改器接入现有代理核心。需要时还能随时暂停改写而不断开代理。</p>
+
+    <div class="path-hero">
+      <a class="path-big path-big-new" href="/beginner.html">
+        <span class="illus">
+          <svg viewBox="0 0 360 180" role="img" aria-label="新手插画">
+            <circle cx="58" cy="46" r="40" fill="var(--brand)" opacity=".08"/>
+            <circle cx="304" cy="136" r="46" fill="var(--accent)" opacity=".09"/>
+            <g transform="rotate(-7 180 100)">
+              <rect x="128" y="26" width="106" height="146" rx="20" fill="#ffffff" stroke="#d7deea" stroke-width="2.5"/>
+              <rect x="160" y="33" width="42" height="8" rx="4" fill="#e6eaf2"/>
+              <clipPath id="scrn"><rect x="137" y="50" width="88" height="114" rx="9"/></clipPath>
+              <g clip-path="url(#scrn)">
+                <rect x="137" y="50" width="88" height="114" fill="#e9f1e7"/>
+                <path d="M137 126 q26 -16 46 2 t44 -4" stroke="#bcd3ef" stroke-width="10" fill="none"/>
+                <rect x="150" y="66" width="20" height="15" rx="2" fill="#d6e0d1"/>
+                <rect x="190" y="134" width="22" height="16" rx="2" fill="#d6e0d1"/>
+              </g>
+              <path d="M181 70 a20 20 0 1 0 .1 0 M181 108 l-13 21 a1 1 0 0 0 26 0 Z" fill="#ff5a5f"/>
+              <circle cx="181" cy="90" r="15" fill="#fff"/>
+              <circle cx="175" cy="87" r="2.2" fill="#333"/><circle cx="187" cy="87" r="2.2" fill="#333"/>
+              <path d="M174 94 q7 6 14 0" stroke="#333" stroke-width="2" fill="none" stroke-linecap="round"/>
+            </g>
+            <g transform="translate(236,42)">
+              <circle cx="0" cy="0" r="18" fill="#12b886"/>
+              <path d="M-8 0 l5 6 l11 -13" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+            <g fill="#ffd43b">
+              <path d="M92 58 l3.4 8.4 l8.4 3.4 l-8.4 3.4 l-3.4 8.4 l-3.4 -8.4 l-8.4 -3.4 l8.4 -3.4 Z"/>
+              <path d="M286 78 l2.6 6.2 l6.2 2.6 l-6.2 2.6 l-2.6 6.2 l-2.6 -6.2 l-6.2 -2.6 l6.2 -2.6 Z"/>
+              <circle cx="104" cy="120" r="4"/>
+            </g>
+          </svg>
+        </span>
+        <span class="ptag">新手 · 图文一步步</span>
+        <h3>我是新手 🍎</h3>
+        <p>一条命令装好完整端点，跟着截图把描述文件装进 iPhone、连接、看定位改变。</p>
+        <span class="go">看图文教程 →</span>
+      </a>
+
+      <a class="path-big path-big-pro" href="/advanced.html">
+        <span class="illus">
+          <svg viewBox="0 0 360 180" role="img" aria-label="高手插画">
+            <circle cx="300" cy="48" r="42" fill="var(--accent)" opacity=".09"/>
+            <circle cx="58" cy="134" r="40" fill="var(--brand)" opacity=".08"/>
+            <g>
+              <line x1="52" y1="70" x2="86" y2="86" stroke="var(--brand)" stroke-width="2.4"/>
+              <line x1="52" y1="120" x2="86" y2="104" stroke="var(--brand)" stroke-width="2.4"/>
+              <circle cx="48" cy="70" r="8" fill="var(--brand)"/><circle cx="48" cy="120" r="8" fill="var(--brand)"/>
+            </g>
+            <rect x="84" y="34" width="196" height="120" rx="15" fill="#0f172a" stroke="#22314f" stroke-width="2"/>
+            <rect x="84" y="34" width="196" height="27" rx="15" fill="#1e293b"/>
+            <rect x="84" y="48" width="196" height="13" fill="#1e293b"/>
+            <circle cx="102" cy="47" r="4" fill="#ff5f56"/><circle cx="116" cy="47" r="4" fill="#ffbd2e"/><circle cx="130" cy="47" r="4" fill="#27c93f"/>
+            <g font-family="monospace" font-size="12.5">
+              <text x="98" y="86" fill="#63e6be">$ sudo hle status</text>
+              <text x="98" y="107" fill="#91a7ff">interceptor: <tspan fill="#e2e8f0">OK</tspan></text>
+              <text x="98" y="128" fill="#91a7ff">city: <tspan fill="#ffd43b">Santa Clara</tspan></text>
+            </g>
+            <rect x="98" y="138" width="9" height="13" fill="#63e6be"/>
+            <g transform="translate(286,126)">
+              <rect x="-21" y="-21" width="42" height="42" rx="10" fill="#12b886"/>
+              <rect x="-21" y="-21" width="42" height="42" rx="10" fill="#12b886" transform="rotate(45)"/>
+              <circle cx="0" cy="0" r="11.5" fill="var(--surface)"/>
+            </g>
+          </svg>
+        </span>
+        <span class="ptag">高手 · 技术对接</span>
+        <h3>我是高手 ⚙</h3>
+        <p>仅定位模式：把拦截器接入你已有的 Xray / 代理核心，只讲关键对接点。</p>
+        <span class="go">看技术对接 →</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- intro -->
+<section id="intro">
+  <div class="container narrow">
+    <h2>这是什么？</h2>
+    <p class="sec-sub">一套开源安装器 + 运行时，把一台干净的 Linux 落地机部署成「Apple 网络定位修改端点」。</p>
+    <p>iPhone 在查询周边 Wi-Fi / 蜂窝定位时会向 Apple 的 <span class="code-inline">gs-loc.apple.com</span> 等域名发请求。本项目在落地机上终止这些请求的内层 TLS，把返回结果里的经纬度平移到「落地机出口 IP 所在城市」内的一个随机坐标，再交还给手机——于是依赖网络定位的 App 会认为你在那座城市。</p>
+    <div class="callout callout-note"><span class="ico">💡</span>
+      <p><strong>关键点：</strong>手机不需要越狱、不需要装任何 App。只要信任一张本机生成的私有 CA，并让流量走全局隧道即可。普通上网流量不受影响、不经过拦截器。</p>
+    </div>
+  </div>
+</section>
+
+<!-- how it works -->
+<section id="how" class="alt anchor">
+  <div class="container narrow">
+    <h2>工作原理</h2>
+    <p class="sec-sub">四步闭环，作用域被刻意收窄到 Apple 定位域名。</p>
+    <figure class="figure" style="margin-bottom:28px">
+      <svg viewBox="0 0 980 300" role="img" aria-label="架构示意图">
+        <defs>
+          <marker id="ah" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--text-mut)"/></marker>
+          <marker id="ahb" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--brand)"/></marker>
+        </defs>
+        <g>
+          <rect x="20" y="96" width="96" height="120" rx="16" fill="var(--surface-2)" stroke="var(--border-strong)"/>
+          <rect x="30" y="110" width="76" height="78" rx="6" fill="var(--brand)" opacity=".12"/>
+          <text x="68" y="158" text-anchor="middle" font-size="26">📱</text>
+          <text x="68" y="240" text-anchor="middle" font-size="13" fill="var(--text-soft)" font-weight="700">iPhone</text>
+          <text x="68" y="258" text-anchor="middle" font-size="11" fill="var(--text-mut)">全局 TUN/VPN</text>
+        </g>
+        <line x1="122" y1="156" x2="236" y2="156" stroke="var(--brand)" stroke-width="2.4" marker-end="url(#ahb)"/>
+        <g transform="translate(179,120)">
+          <rect x="-52" y="0" width="104" height="26" rx="7" fill="var(--note-bg)" stroke="var(--brand)"/>
+          <text x="0" y="17" text-anchor="middle" font-size="11.5" fill="var(--brand)" font-weight="800">🔒 REALITY</text>
+          <text x="0" y="42" text-anchor="middle" font-size="10.5" fill="var(--text-mut)">VLESS · Vision</text>
+        </g>
+        <g>
+          <rect x="244" y="104" width="150" height="104" rx="14" fill="var(--surface)" stroke="var(--brand)" stroke-width="1.6"/>
+          <text x="319" y="140" text-anchor="middle" font-size="22">🖥️</text>
+          <text x="319" y="166" text-anchor="middle" font-size="13.5" fill="var(--text)" font-weight="800">落地机</text>
+          <text x="319" y="185" text-anchor="middle" font-size="11" fill="var(--text-mut)">Xray 分流 · 拦截器</text>
+          <text x="319" y="201" text-anchor="middle" font-size="11" fill="var(--text-mut)">出口 IP = 目标城市</text>
+        </g>
+        <path d="M394 134 C 468 134, 468 74, 556 74" fill="none" stroke="var(--text-mut)" stroke-width="2" marker-end="url(#ah)"/>
+        <g transform="translate(560,58)">
+          <rect x="0" y="0" width="192" height="34" rx="9" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="14" y="22" font-size="12.5" fill="var(--text-soft)" font-weight="700">🌐 普通流量 → 互联网</text>
+        </g>
+        <text x="560" y="110" font-size="11" fill="var(--text-mut)">原样直连，不经拦截器</text>
+        <path d="M394 178 C 468 178, 468 232, 556 232" fill="none" stroke="var(--accent)" stroke-width="2.2" marker-end="url(#ah)"/>
+        <g transform="translate(560,214)">
+          <rect x="0" y="0" width="214" height="36" rx="9" fill="var(--tip-bg)" stroke="var(--accent)"/>
+          <text x="13" y="23" font-size="12" fill="var(--accent)" font-weight="800">📍 Apple 定位 → 回环拦截器</text>
+        </g>
+        <line x1="774" y1="232" x2="856" y2="232" stroke="var(--accent)" stroke-width="2.2" marker-end="url(#ah)"/>
+        <g transform="translate(860,206)">
+          <rect x="0" y="0" width="102" height="52" rx="12" fill="var(--surface)" stroke="var(--border-strong)"/>
+          <text x="51" y="24" text-anchor="middle" font-size="14" fill="var(--text)" font-weight="700">Apple</text>
+          <text x="51" y="42" text-anchor="middle" font-size="10.5" fill="var(--text-mut)">gs-loc 源站</text>
+        </g>
+        <text x="490" y="285" text-anchor="middle" font-size="11.5" fill="var(--text-mut)">拦截器改写响应里的坐标 → 城市内随机点，再返回手机</text>
+      </svg>
+      <figcaption>端到端数据面：加密隧道到落地机，普通流量直连，唯有 Apple 网络定位被限定改写。</figcaption>
+    </figure>
+    <div class="steps">
+      <div class="step"><h3>手机全隧道连接落地机</h3><div class="step-body"><p>客户端用 VLESS + REALITY + Vision 连到落地机，开启全局 TUN/VPN，让系统级流量（含定位服务）都进隧道。</p></div></div>
+      <div class="step"><h3>落地机按域名分流</h3><div class="step-body"><p>Xray 只把 <span class="code-inline">gs-loc.apple.com</span>、<span class="code-inline">gs-loc-cn.apple.com</span>、<span class="code-inline">gspe85…-ssl.ls.apple.com</span> 这几个定位域名送进回环拦截器，其余流量原样直连。定位域名的 UDP/443 被丢弃以促使 QUIC 回退 TCP。</p></div></div>
+      <div class="step"><h3>拦截器改写坐标</h3><div class="step-body"><p>拦截器用手机信任的叶证书终止内层 TLS，向真实 Apple 源站重新取回响应，把其中的坐标整体平移到目标城市内的随机点（保留一批 AP/基站之间的相对几何关系），再返回手机。</p></div></div>
+      <div class="step"><h3>随机中心、稳定响应</h3><div class="step-body"><p>每次安装或执行 <span class="code-inline">hle relocate</span> 会在出口 IP 城市内重新抽点；普通地点在中心 8 米内平滑微漂移。南极昆仑站关闭漂移，并针对稀疏 no-fix 与 WifiTile 404 使用有界内存恢复链，避免定位反复失效。</p></div></div>
+    </div>
+    <p style="text-align:center"><a class="btn btn-ghost" href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">阅读完整架构说明 ↗</a></p>
+  </div>
+</section>
+
+<!-- modes -->
+<section id="modes" class="anchor">
+  <div class="container">
+    <h2>三种安装模式</h2>
+    <p class="sec-sub">安装器交互式询问；也可用参数无人值守安装。首次装好后模式被锁定，不支持原地互转。</p>
+    <div class="grid grid-3">
+      <div class="card path-card">
+        <span class="tag tag-new">新手推荐</span>
+        <h3>完整代理端点</h3>
+        <p style="color:var(--text-soft)">一条命令搞定：自动装好 Xray，生成 VLESS + REALITY + Vision 节点，并接入定位修改器。你只要把节点导入客户端、把描述文件装进手机。</p>
+        <ul class="lead-list">
+          <li>固定使用并现场校验 <span class="code-inline">www.usc.edu</span> 作为 REALITY SNI</li>
+          <li>输出一行可直接导入的 VLESS 链接</li>
+          <li>支持 amd64 / arm64</li>
+        </ul>
+        <a class="btn btn-primary" href="/beginner.html">看新手图文教程 →</a>
+      </div>
+      <div class="card path-card">
+        <span class="tag tag-new">进阶控制</span>
+        <h3>代理端点 + Telegram</h3>
+        <p style="color:var(--text-soft)">完整代理端点再加一个只授权单个 Chat ID 的定位菜单，可切换、增加、删除地点，也能一键恢复真实定位。</p>
+        <ul class="lead-list">
+          <li>预置九个城市/区域和出口城市随机点</li>
+          <li>可选 VLESS + REALITY 或 SS2022</li>
+          <li>低权限 Bot，不监听公网端口</li>
+        </ul>
+        <a class="btn btn-primary" href="/telegram.html">看进阶控制教程 →</a>
+      </div>
+      <div class="card path-card">
+        <span class="tag tag-pro">高级</span>
+        <h3>仅定位修改器</h3>
+        <p style="color:var(--text-soft)">不安装代理核心。只部署回环拦截器、证书与接线示例，由你把自己的代理入站接到定位修改器，与现有 Xray / 其他核心共存。</p>
+        <ul class="lead-list">
+          <li>不碰你已有的端口、防火墙与 TCP 调优</li>
+          <li>提供 Xray sniffing + 路由片段</li>
+          <li>不限 CPU 架构</li>
+        </ul>
+        <a class="btn btn-ghost" href="/advanced.html">看高手对接 →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- features -->
+<section class="alt">
+  <div class="container">
+    <h2>为什么用它</h2>
+    <p class="sec-sub">工程上尽量克制、可审计、可回滚。</p>
+    <div class="grid grid-3">
+      <div class="card"><div class="ic">🎯</div><h4>作用域极窄</h4><p style="color:var(--text-soft)">只路由 Apple 定位域名到拦截器；叶证书 SAN、Xray 路由层层收窄，普通流量与其它站点不受影响。</p></div>
+      <div class="card"><div class="ic">🗺️</div><h4>真实城市随机点</h4><p style="color:var(--text-soft)">按出口 IP 识别城市，在 OpenStreetMap 行政边界内随机取点；取不到边界时在 IP 中心 3km 内回退并明确标记。</p></div>
+      <div class="card"><div class="ic">🔐</div><h4>私钥即用即删</h4><p style="color:var(--text-soft)">每台落地机生成独立 CA，只签一张叶证书后立即删除 CA 私钥；安装输出 CA 的 SHA-256 供你核对。</p></div>
+      <div class="card"><div class="ic">↩️</div><h4>事务化安装</h4><p style="color:var(--text-soft)">安装/升级用互斥锁、预检查与文件级事务；服务或完整性检查失败会恢复到先前受管状态。</p></div>
+      <div class="card"><div class="ic">⏸️</div><h4>随时暂停</h4><p style="color:var(--text-soft)"><span class="code-inline">hle pause</span> 暂停坐标改写并返回 Apple 原始定位；<span class="code-inline">hle resume</span> 即时恢复，代理与普通流量不中断。</p></div>
+      <div class="card"><div class="ic">🧩</div><h4>固定 REALITY 伪装</h4><p style="color:var(--text-soft)">统一使用 <span class="code-inline">www.usc.edu:443</span>，安装时现场校验证书链、公网解析、TLS 1.3 与 HTTP/2，不再随机切换。</p></div>
+      <div class="card"><div class="ic">📲</div><h4>自动交付描述文件</h4><p style="color:var(--text-soft)">交互式安装完成后自动启动一次性下载链接和二维码；成功下载一次或 100 分钟后自动关闭。</p></div>
+      <div class="card"><div class="ic">🛡️</div><h4>不动 SSH / 防火墙</h4><p style="color:var(--text-soft)">安装器不改 SSH 端口/密钥/密码，也不会主动启用原本关闭的 UFW。</p></div>
+      <div class="card"><div class="ic">🏔️</div><h4>高纬稀疏覆盖恢复</h4><p style="color:var(--text-soft)">对南极等无覆盖区的稀疏 sentinel 与 WifiTile 404 使用有 TTL、有限额的纯内存恢复链；没有可信模板时保留 Apple 原始结果。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- requirements -->
+<section id="req" class="anchor">
+  <div class="container narrow">
+    <h2>支持的系统与前提</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>项目</th><th>要求</th></tr>
+        <tr><td>操作系统</td><td>Debian 12 / 13，Ubuntu 22.04 / 24.04（systemd 作 PID 1）</td></tr>
+        <tr><td>CPU 架构</td><td>完整/进阶模式 amd64 / arm64；仅定位模式不限架构</td></tr>
+        <tr><td>内存</td><td>建议 ≥ 384 MiB（低于会警告）</td></tr>
+        <tr><td>磁盘</td><td>完整模式 ≥ 200 MiB，仅定位模式 ≥ 50 MiB 根分区可用</td></tr>
+        <tr><td>网络出口</td><td>能访问 GitHub、IP 定位服务、Nominatim、<span class="code-inline">www.usc.edu:443</span> 与 Apple 源站</td></tr>
+        <tr><td>客户端</td><td>支持 REALITY + Vision 的 iOS 客户端（如 Shadowrocket / Stash / sing-box 等），能开全局 TUN</td></tr>
+      </table>
+    </div>
+    <div class="callout callout-tip"><span class="ico">✅</span>
+      <p>没有落地机？任何一台干净的上述系统 VPS 都可以。<strong>建议用一台专门的机器</strong>，不要装到还承载其它 Xray 配置的主机上（完整模式会拒绝）。</p>
+    </div>
+  </div>
+</section>
+
+<!-- security -->
+<section id="security" class="alt anchor">
+  <div class="container narrow">
+    <h2>安全与局限（请务必读）</h2>
+    <p class="sec-sub">本项目会扩大设备信任面，且并不能改写所有定位信号。诚实地了解边界，再决定是否使用。</p>
+    <div class="callout callout-danger"><span class="ico">⛔</span>
+      <p><strong>不要</strong>依赖本项目处理紧急呼叫、Find My、防盗、合规或任何人身安全场景。请只在你拥有、且获得授权的设备与服务器上，用于学习、测试与隐私自保。</p>
+    </div>
+    <ul>
+      <li>手机原始的 Apple 定位请求仍会转发给 Apple，Apple 仍可能从 Wi-Fi BSSID、蜂窝信息或账号推断真实位置。</li>
+      <li>只覆盖 Apple <em>网络</em>定位。不保证覆盖 GPS/GNSS、蓝牙、蜂窝基带、紧急定位、证书固定或 App 自有定位；户外 GPS 会盖过网络定位。</li>
+      <li>安装私有 CA 会扩大信任面。项目已删除 CA 私钥、并把路由与叶证书限定到 Apple 定位域名，但你仍需理解并接受该风险。</li>
+      <li>近期 Wi-Fi 身份缓存以单个拦截器进程为边界。不要让互不信任的用户共用同一节点凭据。</li>
+      <li>若客户端没有把 UDP、IPv6、硬编码 IP 或系统服务流量纳入全隧道，服务端无法补救这种绕过。</li>
+      <li>随机点可能落在城市内的公园、水域或工业区等不适合模拟日常活动的位置。</li>
+    </ul>
+    <p><a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/SECURITY-AND-PRIVACY.md" target="_blank" rel="noopener">阅读完整安全与隐私模型 ↗</a></p>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="foot-grid">
+      <div style="max-width:320px">
+        <div class="brand" style="margin-bottom:8px">
+          <svg class="pin" viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>
+          Home-Location-Endpoint
+        </div>
+        <p>开源的 Apple 网络定位修改端点，采用 MIT 许可。当前网站内容对应 v0.2.2。</p>
+      </div>
+      <div class="foot-links">
+        <strong style="color:var(--text-soft)">文档</strong>
+        <a href="/beginner.html">新手图文教程</a>
+        <a href="/telegram.html">Telegram 进阶控制</a>
+        <a href="/advanced.html">高手技术对接</a>
+        <a href="/prerequisites.html">前置配置（中转 / 链式）</a>
+      </div>
+      <div class="foot-links">
+        <strong style="color:var(--text-soft)">项目</strong>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint" target="_blank" rel="noopener">GitHub 仓库</a>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/releases/tag/v0.2.2" target="_blank" rel="noopener">v0.2.2 Release</a>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/OPERATIONS.md" target="_blank" rel="noopener">运维与恢复</a>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/SECURITY-AND-PRIVACY.md" target="_blank" rel="noopener">安全与隐私</a>
+      </div>
+    </div>
+    <div class="disclaimer">
+      免责声明：本项目与本站点与 Apple Inc. 无任何关联。请仅在你拥有或获授权的设备与服务器上，出于学习、研究与个人隐私目的使用，并遵守当地法律及相关服务条款。使用者自行承担全部风险与责任。城市边界数据来自 OpenStreetMap 贡献者。
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=3" defer></script>
+</body>
+</html>

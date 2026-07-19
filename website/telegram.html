@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telegram 进阶控制 · Home-Location-Endpoint</title>
+<meta name="description" content="Home-Location-Endpoint 进阶模式：用单操作者 Telegram 菜单切换、增加、删除定位，支持 VLESS REALITY 与 SS2022。">
+<link rel="stylesheet" href="/assets/style.css?v=3">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="/">
+      <svg class="pin" viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>
+      Home-Location-Endpoint
+    </a>
+    <button class="nav-toggle" aria-label="菜单">☰</button>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <a href="/beginner.html">新手教程</a>
+      <a href="/telegram.html">进阶控制</a>
+      <a href="/advanced.html">高手对接</a>
+      <a href="/prerequisites.html">前置配置</a>
+      <a class="cta" href="https://github.com/Loading886/Home-Location-Endpoint" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" style="padding:64px 0 34px">
+  <div class="container">
+    <span class="eyebrow">🤖 进阶模式 · 单操作者 Telegram 菜单</span>
+    <h1>用聊天菜单切换定位</h1>
+    <p class="lead">项目继续替你管理代理、证书与定位路由，同时加入一个低权限 Telegram Bot。切换地点、增加或删除地点、暂停改写，都不需要 SSH，也不用重启代理连接。</p>
+  </div>
+</header>
+
+<section class="section-tight">
+  <div class="container narrow">
+    <div class="grid grid-3">
+      <div class="card"><div class="ic">📍</div><h4>即时切换</h4><p style="color:var(--text-soft)">点击城市按钮后立即生效，并自动恢复定位改写。</p></div>
+      <div class="card"><div class="ic">➕</div><h4>自管地点</h4><p style="color:var(--text-soft)">菜单内新增、确认、删除地点，最多保存 50 个。</p></div>
+      <div class="card"><div class="ic">🌍</div><h4>还原定位</h4><p style="color:var(--text-soft)">暂停坐标改写，代理与 Apple 请求转发保持在线。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="container narrow">
+    <h2>安装前准备</h2>
+    <ol>
+      <li>在 Telegram 打开 <strong>@BotFather</strong>，创建一个只给本节点使用的新 Bot。</li>
+      <li>向新 Bot 发送一次 <span class="code-inline">/start</span>。</li>
+      <li>准备 Bot Token 和你自己的<strong>数字 Chat ID</strong>。不要复用正在被其他程序轮询的 Bot。</li>
+    </ol>
+    <div class="callout callout-note"><span class="ico">🔒</span><p>本项目使用 Telegram 官方 HTTPS 长轮询，不配置 webhook，也不开放 Bot 入站端口；只有安装时指定的 Chat ID 会被处理。</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="container narrow">
+    <h2>一键安装进阶模式</h2>
+    <p>运行安装器，选择 <span class="kbd">2</span>，再选择 VLESS + REALITY（推荐）或 SS2022。Token 输入不会回显，写入前会先校验 Bot 和 Chat。</p>
+    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
+  | sudo bash</pre></div>
+    <p>无人值守安装示例：</p>
+    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
+  | sudo env \
+      HLE_TELEGRAM_BOT_TOKEN=<span class="s">'BOT_TOKEN'</span> \
+      HLE_TELEGRAM_CHAT_ID=<span class="s">'NUMERIC_CHAT_ID'</span> \
+      bash -s -- <span class="k">--mode</span> advanced <span class="k">--protocol</span> vless-reality <span class="k">--port</span> 443</pre></div>
+    <div class="callout callout-warn"><span class="ico">⚠️</span><p>安装器不支持原地转换模式或协议。已经用 full / modifier-only 安装的机器，不要直接用 advanced 覆盖；需要先按文档安全卸载，再重新安装并更新客户端节点。</p></div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="container narrow">
+    <h2>菜单怎么用</h2>
+    <p>向 Bot 发送 <span class="code-inline">/menu</span>、<span class="code-inline">/start</span>、<span class="code-inline">/location</span> 或 <span class="code-inline">/status</span> 都会打开定位菜单。</p>
+    <div class="table-wrap"><table>
+      <tr><th>操作</th><th>行为</th></tr>
+      <tr><td>点击城市</td><td>切换为该地点并恢复改写；无需重启服务或重连代理</td></tr>
+      <tr><td>🌍 真实定位</td><td>暂停响应改写；代理和 Apple 请求转发仍保持运行</td></tr>
+      <tr><td>➕ 增加地点</td><td>依次输入短名称、地址和 WGS84 格式的“纬度, 经度”，确认后保存</td></tr>
+      <tr><td>➖ 删除地点</td><td>二次确认后删除非活动地点；活动地点和最后一个地点不能删除</td></tr>
+    </table></div>
+    <p>首次安装会生成出口 IP 城市随机点，并预置洛杉矶、东京、香港、新加坡、吉隆坡、巴黎、法兰克福、Reykjavík 与南极昆仑站。每台服务器的随机点不同，重复安装会保留现有地点库。</p>
+  </div>
+</section>
+
+<section>
+  <div class="container narrow">
+    <h2>南极等高纬地点</h2>
+    <p>昆仑站会在安装时于站点附近生成独立随机中心，但关闭每 120 秒的平滑微漂移，避免高纬稀疏覆盖区反复无定位。v0.2.2 对两类 Apple 响应增加了有界恢复：</p>
+    <ul>
+      <li>纯 no-fix sentinel 批次生成目标点 45 米内的稳定微型坐标簇；稀疏批次只用同一进程近期真实出现的 Wi-Fi 身份补足。</li>
+      <li>WifiTile 404 依次尝试内存完整瓦片、Apple 公共种子和近期真实身份最小瓦片；没有可信模板就保留原始 404。</li>
+    </ul>
+    <div class="callout callout-tip"><span class="ico">🧠</span><p>这些缓存只存在内存，带 TTL 和数量上限，不写入磁盘或普通日志；服务重启后自动清空。</p></div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="container narrow">
+    <h2>权限与健康检查</h2>
+    <p>Bot 运行在独立的 <span class="code-inline">home-location-bot</span> 低权限账号，不能读取节点 URI、REALITY/SS 凭据、CA 叶私钥或 <span class="code-inline">install.env</span>。地点更新采用原子替换，修改前保留最近 30 份本地备份。</p>
+    <div class="code"><pre>sudo hle status
+sudo hle verify
+sudo systemctl status home-location-telegram-bot --no-pager
+sudo journalctl -u home-location-telegram-bot --since <span class="s">'30 minutes ago'</span> --no-pager</pre></div>
+    <p><span class="code-inline">hle verify</span> 会检查 Bot 最近 180 秒的 API 心跳。Token 被撤销、网络无法访问 Telegram，或同一 Token 被另一个控制器占用时，检查会明确失败。</p>
+    <div class="callout callout-danger"><span class="ico">⛔</span><p>近期 Wi-Fi 身份缓存以单个拦截器进程为边界。不要把同一节点凭据分发给互不信任的用户。</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="container narrow">
+    <h2>协议选择</h2>
+    <div class="grid grid-2">
+      <div class="card"><div class="ic">🛡️</div><h4>VLESS + REALITY + Vision</h4><p style="color:var(--text-soft)">推荐公网新部署；固定 SNI/target 为 <span class="code-inline">www.usc.edu:443</span>，适合前面加 Realm 纯 TCP 中转。</p></div>
+      <div class="card"><div class="ic">🔁</div><h4>SS2022</h4><p style="color:var(--text-soft)">兼容选项，同端口需要 TCP 与 UDP；Realm 只转发 TCP，不能承载 SS2022 原生 UDP。Xray 已提示该实现未来可能弃用。</p></div>
+    </div>
+    <div class="callout callout-note" style="margin-top:24px"><span class="ico">➡️</span><p>需要 Realm 前置、NAT 双 IP 或客户端链式代理？继续查看 <a href="/prerequisites.html"><strong>前置配置指引</strong></a>。</p></div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="foot-grid">
+      <div style="max-width:320px">
+        <div class="brand" style="margin-bottom:8px">
+          <svg class="pin" viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>
+          Home-Location-Endpoint
+        </div>
+        <p>进阶模式仍是单操作者、自托管设计。网站内容对应 v0.2.2。</p>
+      </div>
+      <div class="foot-links">
+        <strong style="color:var(--text-soft)">相关教程</strong>
+        <a href="/beginner.html">新手图文教程</a>
+        <a href="/advanced.html">高手技术对接</a>
+        <a href="/prerequisites.html">前置配置</a>
+      </div>
+      <div class="foot-links">
+        <strong style="color:var(--text-soft)">项目文档</strong>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/ADVANCED.md" target="_blank" rel="noopener">ADVANCED.md</a>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/releases/tag/v0.2.2" target="_blank" rel="noopener">v0.2.2 Release</a>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/SECURITY-AND-PRIVACY.md" target="_blank" rel="noopener">安全与隐私</a>
+      </div>
+    </div>
+    <div class="disclaimer">免责声明：本项目与本站点与 Apple Inc. 或 Telegram 无任何关联。请仅在你拥有或获授权的设备与服务器上使用，并遵守当地法律及相关服务条款。</div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=3" defer></script>
+</body>
+</html>

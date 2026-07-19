@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>高手技术对接 · 仅定位模式 · Home-Location-Endpoint</title>
+<meta name="description" content="仅定位修改器模式：把定位拦截器接入你已有的 Xray / 代理核心。sniffing routeOnly、两个 outbound、两条路由规则与回环安全例外的精确对接。">
+<link rel="stylesheet" href="/assets/style.css?v=3">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="/">
+      <svg class="pin" viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>
+      Home-Location-Endpoint
+    </a>
+    <button class="nav-toggle" aria-label="菜单">☰</button>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <a href="/beginner.html">新手教程</a>
+      <a href="/telegram.html">进阶控制</a>
+      <a href="/advanced.html">高手对接</a>
+      <a href="/prerequisites.html">前置配置</a>
+      <a class="cta" href="https://github.com/Loading886/Home-Location-Endpoint" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" style="padding:64px 0 30px">
+  <div class="container">
+    <span class="eyebrow">⚙ 高手 · 仅定位模式 · 自管代理核心</span>
+    <h1>高手技术对接</h1>
+    <p class="lead">你已经能独立维护自己的代理核心与路由。<strong>仅定位修改器</strong>模式只装拦截器、证书与接线示例，由你把自己的入站接到定位修改器，与现有 Xray / 其他核心共存。本页讲清关键对接点。</p>
+  </div>
+</header>
+
+<section class="section-tight">
+ <div class="container narrow">
+  <div class="card" style="margin-bottom:6px">
+    <strong>本页导航：</strong>
+    <a href="#install">① 安装</a> ·
+    <a href="#dataflow">② 数据面</a> ·
+    <a href="#sniff">③ 入站 sniffing</a> ·
+    <a href="#outbounds">④ 两个出站</a> ·
+    <a href="#routing">⑤ 两条路由</a> ·
+    <a href="#loopback">⑥ 回环安全例外</a> ·
+    <a href="#other">⑦ 其它代理核心</a> ·
+    <a href="#verify">⑧ 验证</a> ·
+    <a href="#scope">⑨ 作用域与边界</a>
+  </div>
+ </div>
+</section>
+
+<section id="install" class="anchor section-tight">
+  <div class="container narrow">
+    <h2>① 安装仅定位模式</h2>
+    <p>不安装 Xray、不创建代理入站、不开放端口、不改 UFW、不写 TCP 调优——只装回环拦截器、城市识别与选点、私有 CA 与 iOS 描述文件、<span class="code-inline">hle</span> 运维命令，以及接线示例 <span class="code-inline">/etc/home-location-endpoint/xray-location-routing.example.json</span>。</p>
+    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
+  | sudo bash -s -- <span class="k">--mode</span> modifier-only</pre></div>
+    <div class="callout callout-warn"><span class="ico">⚠️</span><p>同一台机器后续只能用<strong>相同模式</strong>重跑安装器，不会在 full、advanced 与 modifier-only 间自动迁移，以免覆盖你自管的代理配置。</p></div>
+    <p>安装输出会给你：CA 描述文件与 SHA-256、回环监听地址 <span class="code-inline">127.0.0.1:10451</span>、以及接线示例文件路径。不生成 VLESS URI。</p>
+    <div class="callout callout-note"><span class="ico">📲</span>
+      <p>把 CA 描述文件装到手机的方式与新手一致：交互式安装完成后会自动启动一次性令牌链接（默认 100 分钟、下载一次即失效）。以后需要重新生成时运行 <span class="code-inline">sudo hle profile serve</span>；如需覆盖入口地址，使用 <span class="code-inline">--host 手机可访问的地址</span>。详见 <a href="/beginner.html">新手教程第 4 步</a>。</p>
+    </div>
+  </div>
+</section>
+
+<section id="dataflow" class="alt anchor">
+  <div class="container">
+    <h2>② 数据面：拦截器在哪一环</h2>
+    <p class="sec-sub">你的代理核心负责解密与承载手机流量；本项目负责「定位域名 → 回环拦截器」这一小段。</p>
+    <figure class="figure">
+      <svg viewBox="0 0 960 300" role="img" aria-label="仅定位模式数据面">
+        <defs><marker id="a2" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--text-mut)"/></marker>
+        <marker id="a2g" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--accent)"/></marker>
+        <marker id="a2r" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--danger)"/></marker></defs>
+        <g><rect x="18" y="118" width="120" height="80" rx="12" fill="var(--surface)" stroke="var(--border-strong)"/>
+          <text x="78" y="150" text-anchor="middle" font-size="22">📱</text><text x="78" y="176" text-anchor="middle" font-size="12.5" fill="var(--text)" font-weight="700">手机全隧道</text></g>
+        <line x1="140" y1="158" x2="212" y2="158" stroke="var(--text-mut)" stroke-width="2" marker-end="url(#a2)"/>
+        <g><rect x="216" y="96" width="184" height="124" rx="14" fill="var(--surface)" stroke="var(--brand)" stroke-width="1.6"/>
+          <text x="308" y="128" text-anchor="middle" font-size="13.5" fill="var(--text)" font-weight="800">你的代理入站</text>
+          <text x="308" y="150" text-anchor="middle" font-size="11.5" fill="var(--text-mut)">解密 + sniffing</text>
+          <text x="308" y="168" text-anchor="middle" font-size="11.5" fill="var(--text-mut)">routeOnly: true</text>
+          <text x="308" y="192" text-anchor="middle" font-size="11.5" fill="var(--brand)" font-weight="700">按域名路由</text></g>
+        <!-- three routes -->
+        <path d="M400 130 C 470 130, 470 60, 560 60" fill="none" stroke="var(--text-mut)" stroke-width="2" marker-end="url(#a2)"/>
+        <text x="566" y="52" font-size="12.5" fill="var(--text-soft)" font-weight="700">其它流量 → 你的正常出站</text>
+        <text x="566" y="70" font-size="11" fill="var(--text-mut)">保持原目的地址，不受影响</text>
+
+        <path d="M400 158 C 480 158, 480 168, 560 168" fill="none" stroke="var(--accent)" stroke-width="2.2" marker-end="url(#a2g)"/>
+        <g transform="translate(566,148)"><rect x="0" y="0" width="260" height="40" rx="9" fill="var(--tip-bg)" stroke="var(--accent)"/>
+          <text x="12" y="18" font-size="12" fill="var(--accent)" font-weight="800">定位域名 TCP/443</text>
+          <text x="12" y="33" font-size="10.5" fill="var(--text-soft)">→ 拦截器 127.0.0.1:10451</text></g>
+        <line x1="828" y1="168" x2="908" y2="168" stroke="var(--accent)" stroke-width="2.2" marker-end="url(#a2g)"/>
+        <text x="864" y="152" font-size="11" fill="var(--text-mut)" text-anchor="middle">改写坐标</text>
+
+        <path d="M400 186 C 470 186, 470 250, 560 250" fill="none" stroke="var(--danger)" stroke-width="2" marker-end="url(#a2r)"/>
+        <g transform="translate(566,232)"><rect x="0" y="0" width="240" height="36" rx="9" fill="var(--danger-bg)" stroke="var(--danger)"/>
+          <text x="12" y="16" font-size="12" fill="var(--danger)" font-weight="800">定位域名 UDP/443（QUIC）</text>
+          <text x="12" y="31" font-size="11" fill="var(--text-soft)">→ blackhole，迫使回退 TCP</text></g>
+      </svg>
+      <figcaption>两条规则：定位域名的 UDP/443 丢弃促使 QUIC 回退 TCP；TCP/443 送入回环拦截器。其它一切保持不变。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="sniff" class="anchor">
+  <div class="container narrow">
+    <h2>③ 承载手机流量的入站要开 sniffing</h2>
+    <p>必须启用嗅探，并<strong>只把嗅探结果用于路由</strong>（<span class="code-inline">routeOnly: true</span>），否则会改写真实目的地址、破坏其它流量。</p>
+    <div class="code"><pre><span class="k">"sniffing"</span>: {
+  <span class="k">"enabled"</span>: <span class="s">true</span>,
+  <span class="k">"destOverride"</span>: [<span class="s">"http"</span>, <span class="s">"tls"</span>, <span class="s">"quic"</span>],
+  <span class="k">"routeOnly"</span>: <span class="s">true</span>
+}</pre></div>
+  </div>
+</section>
+
+<section id="outbounds" class="anchor">
+  <div class="container narrow">
+    <h2>④ 加入两个出站</h2>
+    <p>把示例文件里的两个 outbound 原样并入你现有的 <span class="code-inline">outbounds</span>，tag 必须保持为 <span class="code-inline">location-interceptor</span> 与 <span class="code-inline">block-location-quic</span>。</p>
+    <div class="code"><pre>{
+  <span class="k">"tag"</span>: <span class="s">"location-interceptor"</span>,
+  <span class="k">"protocol"</span>: <span class="s">"freedom"</span>,
+  <span class="k">"settings"</span>: {
+    <span class="k">"domainStrategy"</span>: <span class="s">"AsIs"</span>,
+    <span class="k">"redirect"</span>: <span class="s">"127.0.0.1:10451"</span>,
+    <span class="k">"finalRules"</span>: [
+      { <span class="k">"action"</span>: <span class="s">"allow"</span>, <span class="k">"network"</span>: <span class="s">"tcp"</span>,
+        <span class="k">"ip"</span>: [<span class="s">"127.0.0.1/32"</span>], <span class="k">"port"</span>: <span class="s">"10451"</span> }
+    ]
+  }
+},
+{ <span class="k">"tag"</span>: <span class="s">"block-location-quic"</span>, <span class="k">"protocol"</span>: <span class="s">"blackhole"</span>, <span class="k">"settings"</span>: {} }</pre></div>
+    <div class="callout callout-danger"><span class="ico">⛔</span><p>不要把 VLESS/REALITY 的<strong>外层</strong>加密连接直接 DNAT 到 10451。定位修改器无法解析代理外层协议——它只处理解密后、指向定位域名的<strong>内层</strong> TCP。</p></div>
+  </div>
+</section>
+
+<section id="routing" class="anchor">
+  <div class="container narrow">
+    <h2>⑤ 加入两条路由规则（注意顺序）</h2>
+    <p>把这两条规则按<strong>原顺序</strong>放在任何可能提前匹配 Apple 域名的宽泛规则<strong>之前</strong>。第一条只阻断定位域名的 UDP/443；第二条才把 TCP/443 送到回环拦截器。</p>
+    <div class="code"><pre>{
+  <span class="k">"type"</span>: <span class="s">"field"</span>, <span class="k">"network"</span>: <span class="s">"udp"</span>, <span class="k">"port"</span>: <span class="s">"443"</span>,
+  <span class="k">"domain"</span>: [
+    <span class="s">"full:gs-loc.apple.com"</span>,
+    <span class="s">"full:gs-loc-cn.apple.com"</span>,
+    <span class="s">"regexp:^gspe85(-[0-9]+)?(-cn)?-ssl\\.ls\\.apple\\.com$"</span>
+  ],
+  <span class="k">"outboundTag"</span>: <span class="s">"block-location-quic"</span>
+},
+{
+  <span class="k">"type"</span>: <span class="s">"field"</span>, <span class="k">"network"</span>: <span class="s">"tcp"</span>, <span class="k">"port"</span>: <span class="s">"443"</span>,
+  <span class="k">"domain"</span>: [
+    <span class="s">"full:gs-loc.apple.com"</span>,
+    <span class="s">"full:gs-loc-cn.apple.com"</span>,
+    <span class="s">"regexp:^gspe85(-[0-9]+)?(-cn)?-ssl\\.ls\\.apple\\.com$"</span>
+  ],
+  <span class="k">"outboundTag"</span>: <span class="s">"location-interceptor"</span>
+}</pre></div>
+    <div class="callout callout-warn"><span class="ico">⚠️</span><p>删掉第一条 UDP 规则会重新引入未改写的 QUIC 直出；把域名集合扩大则会误伤普通流量。保持原样最安全。</p></div>
+  </div>
+</section>
+
+<section id="loopback" class="alt anchor">
+  <div class="container narrow">
+    <h2>⑥ 为什么需要回环安全例外</h2>
+    <p>新版 Xray 默认阻止来自 VLESS 入站、指向私网/保留地址的 freedom 连接。定位出站必须访问回环拦截器，因此配置只<strong>显式放行</strong>这一个本地服务：</p>
+    <div class="code"><pre>{ <span class="k">"action"</span>: <span class="s">"allow"</span>, <span class="k">"network"</span>: <span class="s">"tcp"</span>,
+  <span class="k">"ip"</span>: [<span class="s">"127.0.0.1/32"</span>], <span class="k">"port"</span>: <span class="s">"10451"</span> }</pre></div>
+    <p>普通 <span class="code-inline">direct</span> 出站没有增加 allow-all，因此仍保留 Xray 对私网目标的默认保护。</p>
+  </div>
+</section>
+
+<section id="other" class="anchor">
+  <div class="container narrow">
+    <h2>⑦ 用其它代理核心？对接的等价能力</h2>
+    <p>不用 Xray 也可以，只要你的核心具备下面这组等价能力：</p>
+    <ul>
+      <li>在代理认证与解密<strong>之后</strong>，能拿到内层 TLS 的 SNI / 目标域名；</li>
+      <li>仅把这三类 Apple 定位域名的 TCP/443 重定向到 <span class="code-inline">127.0.0.1:10451</span>：<br>
+        <span class="code-inline">gs-loc.apple.com</span>、<span class="code-inline">gs-loc-cn.apple.com</span>、<span class="code-inline">gspe85(-数字)?(-cn)?-ssl.ls.apple.com</span>；</li>
+      <li>其余目标保持原目的地址（不要全量 DNAT）；</li>
+      <li>最好同时阻断这些域名的 UDP/443，促使 QUIC 回退到可被拦截器处理的 TCP。</li>
+    </ul>
+    <div class="callout callout-note"><span class="ico">🔌</span><p>拦截器本身与核心无关：它只是 <span class="code-inline">127.0.0.1:10451</span> 上一个终止内层 TLS、改写 gs-loc / WifiTile 响应坐标的本地服务。谁把「解密后的定位域名 TCP 流」喂给它都行。</p></div>
+  </div>
+</section>
+
+<section id="verify" class="alt anchor">
+  <div class="container narrow">
+    <h2>⑧ 验证</h2>
+    <p>合并配置后，先用你自己核心的配置检查命令校验并重启，然后：</p>
+    <div class="code"><pre>sudo hle verify
+sudo hle status
+sudo journalctl -u home-location-endpoint --since <span class="s">'10 minutes ago'</span></pre></div>
+    <p><span class="code-inline">hle verify</span> 只能验证定位修改器与接线示例本身，<strong>无法</strong>证明你已把片段正确合并进第三方配置。所以务必：从客户端真实发起一次定位请求，确认日志出现 <span class="code-inline">TRANSLATE</span> / <span class="code-inline">WIFITILE_TRANSLATE</span>；并确认<strong>普通网站没有</strong>进入定位拦截器日志。</p>
+    <div class="callout callout-tip"><span class="ico">🧪</span><p>默认 fail-closed：解析不确定时拦截器不会悄悄返回真实坐标，而是返回错误。排障时留意 <span class="code-inline">TRANSLATE_FAIL_CLOSED</span> / <span class="code-inline">WIFITILE_FAIL_CLOSED</span>。</p></div>
+    <div class="callout callout-note"><span class="ico">⏸️</span><p><strong>暂停改写：</strong><span class="code-inline">sudo hle pause</span> 会保留你的代理核心、路由和回环拦截器，只把 Apple 原始响应直接返回；<span class="code-inline">sudo hle resume</span> 恢复改写。两者都无需重启代理核心，状态跨重启和重复安装保留。</p></div>
+  </div>
+</section>
+
+<section id="scope" class="anchor">
+  <div class="container narrow">
+    <h2>⑨ 作用域清单与边界</h2>
+    <div class="table-wrap"><table>
+      <tr><th>项</th><th>值</th></tr>
+      <tr><td>改写的定位域名</td><td><span class="code-inline">gs-loc.apple.com</span>, <span class="code-inline">gs-loc-cn.apple.com</span>, <span class="code-inline">gspe85(-\d+)?(-cn)?-ssl.ls.apple.com</span></td></tr>
+      <tr><td>回环拦截器</td><td><span class="code-inline">127.0.0.1:10451</span>（仅本机，不对公网开放）</td></tr>
+      <tr><td>叶证书 SAN</td><td>两个 gs-loc 域名 + <span class="code-inline">*.ls.apple.com</span></td></tr>
+      <tr><td>处理内容</td><td>WLOC（Wi-Fi/蜂窝）与 WifiTile 响应中的坐标，保留批次几何关系</td></tr>
+      <tr><td>no-fix 处理</td><td>明确的纯 sentinel 批次生成目标点 45 米内的稳定微型坐标簇；稀疏批次只用同一进程近期观测到的真实 Wi-Fi 身份补足；未知或畸形响应仍失败关闭</td></tr>
+      <tr><td>WifiTile 404</td><td>依次尝试进程内完整瓦片缓存、Apple 已知有效公共种子、近期真实 Wi-Fi 身份最小瓦片；均不可用时保留 Apple 原始 404</td></tr>
+      <tr><td>暂停行为</td><td><span class="code-inline">hle pause</span> 后使用手机请求的原始 Apple host，并返回未改写响应；代理流量不中断</td></tr>
+    </table></div>
+    <p>其余安全边界与完整模式一致：叶私钥位于落地机、Apple 仍收到原始请求、只覆盖网络定位、需全隧道否则绕过。详见 <a href="/#security">安全与局限</a> 与 <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/MODIFIER-ONLY.md" target="_blank" rel="noopener">仓库 MODIFIER-ONLY 文档 ↗</a>。</p>
+    <div class="callout callout-note" style="margin-top:24px"><span class="ico">➡️</span><p>落地机在 NAT 后、需要 Realm 中转或链式代理？请看 <a href="/prerequisites.html"><strong>前置配置指引</strong></a>。</p></div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="foot-grid">
+      <div style="max-width:320px">
+        <div class="brand" style="margin-bottom:8px">
+          <svg class="pin" viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>
+          Home-Location-Endpoint
+        </div>
+        <p>接线以仓库示例文件为准：<span class="code-inline">/etc/home-location-endpoint/xray-location-routing.example.json</span></p>
+      </div>
+      <div class="foot-links">
+        <strong style="color:var(--text-soft)">相关</strong>
+        <a href="/beginner.html">新手图文教程</a>
+        <a href="/telegram.html">Telegram 进阶控制</a>
+        <a href="/prerequisites.html">前置配置</a>
+        <a href="/#security">安全与局限</a>
+      </div>
+      <div class="foot-links">
+        <strong style="color:var(--text-soft)">项目</strong>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/MODIFIER-ONLY.md" target="_blank" rel="noopener">MODIFIER-ONLY.md</a>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">ARCHITECTURE.md</a>
+      </div>
+    </div>
+    <div class="disclaimer">
+      免责声明：本项目与本站点与 Apple Inc. 无任何关联。请仅在你拥有或获授权的设备与服务器上，出于学习、研究与个人隐私目的使用，并遵守当地法律及相关服务条款。
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=3" defer></script>
+</body>
+</html>
