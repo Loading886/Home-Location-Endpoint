@@ -88,8 +88,8 @@ Home-Location-Endpoint landing server
 交互安装会询问选择新手、进阶或高手模式；项目推荐选择进阶模式（输入 `2`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.6/install.sh \
-  | sudo env HLE_VERSION=v0.2.6 bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.3.0/install.sh \
+  | sudo env HLE_VERSION=v0.3.0 bash
 ```
 
 代理模式要求服务器上没有不受本项目管理的 Xray 配置；高手模式可以与用户现有代理核心共存。
@@ -99,16 +99,16 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v
 无人值守安装完整模式：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.6/install.sh \
-  | sudo env HLE_VERSION=v0.2.6 bash -s -- --mode full --port 443
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.3.0/install.sh \
+  | sudo env HLE_VERSION=v0.3.0 bash -s -- --mode full --port 443
 ```
 
 无人值守安装进阶模式（建议为此节点创建专用 Bot，并先向 Bot 发送 `/start`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.6/install.sh \
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.3.0/install.sh \
   | sudo env \
-      HLE_VERSION=v0.2.6 \
+      HLE_VERSION=v0.3.0 \
       HLE_TELEGRAM_BOT_TOKEN='BOT_TOKEN' \
       HLE_TELEGRAM_CHAT_ID='NUMERIC_CHAT_ID' \
       bash -s -- --mode advanced --protocol ss2022 --port 443
@@ -121,8 +121,8 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v
 无人值守安装仅定位模式：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.6/install.sh \
-  | sudo env HLE_VERSION=v0.2.6 bash -s -- --mode modifier-only
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.3.0/install.sh \
+  | sudo env HLE_VERSION=v0.3.0 bash -s -- --mode modifier-only
 ```
 
 VLESS 模式使用安装器内置且统一管理的 REALITY SNI/target。安装时会从落地服务器现场检查证书

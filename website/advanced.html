@@ -57,8 +57,8 @@
   <div class="container narrow">
     <h2>① 安装仅定位模式</h2>
     <p>不安装代理核心、不创建代理入站、不开放端口、不改 UFW、不写 TCP 调优——只装回环定位修改器、城市识别与选点、私有 CA 与 iOS 描述文件、<span class="code-inline">hle</span> 运维命令，以及一份代理核心接线示例。</p>
-    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.6/install.sh \
-  | sudo env HLE_VERSION=v0.2.6 bash -s -- <span class="k">--mode</span> modifier-only</pre></div>
+    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.3.0/install.sh \
+  | sudo env HLE_VERSION=v0.3.0 bash -s -- <span class="k">--mode</span> modifier-only</pre></div>
     <div class="callout callout-warn"><span class="ico">⚠️</span><p>同一台机器后续只能用<strong>相同模式</strong>重跑安装器，不会在 full、advanced 与 modifier-only 间自动迁移，以免覆盖你自管的代理配置。</p></div>
     <p>安装输出会给你：CA 描述文件与 SHA-256、回环监听地址 <span class="code-inline">127.0.0.1:10451</span>、以及接线示例文件路径。不生成代理节点链接。</p>
     <div class="callout callout-note"><span class="ico">📲</span>

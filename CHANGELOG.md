@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-07-19
+
+- Promote complete WifiTile 200 response supplementation to a minor-version
+  milestone: recent phone-requested BSSIDs that lack a usable Apple location
+  are added around the effective target without disturbing valid tile entries.
+- Keep the bounded request-only identity cache separate from WLOC response
+  observations, preserve protobuf unknown fields plus HTTP transport and cache
+  semantics, and retain count-only operational logging.
+- Validate the path with the full automated suite and a 9,639-device stress
+  fixture, while documenting the intended single-operator cache boundary.
+
 ## 0.2.6 - 2026-07-19
 
 - Supplement normal WifiTile 200 responses with recent phone-requested BSSIDs
