@@ -20,6 +20,7 @@ import gsloc_rewrite as gx
 
 REGION_FIELD = 3
 REGION_DEVICE_FIELD = 2
+DEVICE_BSSID_FIELD = 5
 DEVICE_LOCATION_FIELD = 6
 LOCATION_LAT_FIELD = 1
 LOCATION_LON_FIELD = 2
@@ -149,22 +150,53 @@ def translate_wifi_tile(
     return replacement, count, anchor
 
 
-def build_synthetic_wifi_tile(
-    bssid_values, target_lat, target_lon, radius_m=45.0
-):
-    """Build a minimal tile using only recent real Wi-Fi identities."""
-    values = set()
-    for value in bssid_values:
+def decode_bssids(payload):
+    """Return BSSIDs that already have a usable location in the tile."""
+    values = []
+    for region in gx.parse_fields(payload):
+        if region.field_no != REGION_FIELD or region.wire_type != gx.WIRE_LEN:
+            continue
+        for device in gx.parse_fields(region.value):
+            if device.field_no != REGION_DEVICE_FIELD or device.wire_type != gx.WIRE_LEN:
+                continue
+            bssid = None
+            located = False
+            for entry in gx.parse_fields(device.value):
+                if (
+                    entry.field_no == DEVICE_BSSID_FIELD
+                    and entry.wire_type == gx.WIRE_VARINT
+                    and 0 <= entry.value < (1 << 48)
+                ):
+                    bssid = int(entry.value)
+                elif (
+                    entry.field_no == DEVICE_LOCATION_FIELD
+                    and entry.wire_type == gx.WIRE_LEN
+                ):
+                    lat, lon = _location_values(gx.parse_fields(entry.value))
+                    located = located or (
+                        lat is not None
+                        and lon is not None
+                        and -90 <= lat <= 90
+                        and -180 <= lon <= 180
+                    )
+            if bssid is not None and located:
+                values.append(bssid)
+    return values
+
+
+def _normalized_bssids(values):
+    normalized = set()
+    for value in values or ():
         try:
             integer = int(value)
         except (TypeError, ValueError):
             continue
         if 0 <= integer < (1 << 48):
-            values.add(integer)
-    values = sorted(values)
-    if not values:
-        return b"", 0
+            normalized.add(integer)
+    return sorted(normalized)
 
+
+def _build_synthetic_region(values, target_lat, target_lon, radius_m):
     points = gx.synthetic_cluster_points(
         [value.to_bytes(6, "big") for value in values],
         (target_lat, target_lon),
@@ -181,15 +213,49 @@ def build_synthetic_wifi_tile(
             + gx.write_varint(77)
         )
         device = (
-            gx.tag(5, gx.WIRE_VARINT)
+            gx.tag(DEVICE_BSSID_FIELD, gx.WIRE_VARINT)
             + gx.write_varint(bssid)
             + gx.len_field(DEVICE_LOCATION_FIELD, location)
         )
         region += gx.len_field(REGION_DEVICE_FIELD, device)
+    return bytes(region)
+
+
+def supplement_wifi_tile(
+    payload,
+    bssid_values,
+    target_lat,
+    target_lon,
+    radius_m=45.0,
+):
+    """Append missing recent BSSIDs without modifying existing tile fields."""
+    existing = set(decode_bssids(payload))
+    missing = [
+        value for value in _normalized_bssids(bssid_values)
+        if value not in existing
+    ]
+    if not missing:
+        return payload, 0
+    region = _build_synthetic_region(
+        missing, target_lat, target_lon, radius_m
+    )
+    return payload + gx.len_field(REGION_FIELD, region), len(missing)
+
+
+def build_synthetic_wifi_tile(
+    bssid_values, target_lat, target_lon, radius_m=45.0
+):
+    """Build a minimal tile using only recent real Wi-Fi identities."""
+    values = _normalized_bssids(bssid_values)
+    if not values:
+        return b"", 0
+    region = _build_synthetic_region(
+        values, target_lat, target_lon, radius_m
+    )
     payload = (
         gx.tag(1, gx.WIRE_VARINT)
         + gx.write_varint(9)
-        + gx.len_field(REGION_FIELD, bytes(region))
+        + gx.len_field(REGION_FIELD, region)
     )
     return payload, len(values)
 

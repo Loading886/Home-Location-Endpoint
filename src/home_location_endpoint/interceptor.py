@@ -130,6 +130,8 @@ _jitter_seed_cache = {"fingerprint": None, "value": None}
 _jitter_seed_lock = threading.Lock()
 _recent_wifi = collections.OrderedDict()
 _recent_wifi_lock = threading.Lock()
+_recent_request_wifi = collections.OrderedDict()
+_recent_request_wifi_lock = threading.Lock()
 _wifi_template_cache = {"payload": None, "seen": None}
 _wifi_template_lock = threading.Lock()
 _worker_slots = threading.BoundedSemaphore(MAX_WORKERS)
@@ -174,8 +176,7 @@ def _bssid_to_int(value):
     return None
 
 
-def _remember_wifi_values(values, now=None):
-    """Keep a bounded, memory-only TTL cache for no-coverage recovery."""
+def _remember_wifi_values_in(cache, lock, values, now=None):
     timestamp = time.monotonic() if now is None else float(now)
     normalized = []
     for value in values:
@@ -184,51 +185,81 @@ def _remember_wifi_values(values, now=None):
             normalized.append(bssid)
     if not normalized:
         return 0
-    with _recent_wifi_lock:
+    with lock:
         cutoff = timestamp - RECENT_WIFI_TTL
-        while _recent_wifi:
-            _key, seen = next(iter(_recent_wifi.items()))
+        while cache:
+            _key, seen = next(iter(cache.items()))
             if seen >= cutoff:
                 break
-            _recent_wifi.popitem(last=False)
+            cache.popitem(last=False)
         for bssid in normalized:
-            _recent_wifi.pop(bssid, None)
-            _recent_wifi[bssid] = timestamp
-        while len(_recent_wifi) > RECENT_WIFI_MAX:
-            _recent_wifi.popitem(last=False)
+            cache.pop(bssid, None)
+            cache[bssid] = timestamp
+        while len(cache) > RECENT_WIFI_MAX:
+            cache.popitem(last=False)
     return len(normalized)
+
+
+def _remember_wifi_values(values, now=None):
+    """Keep request and response BSSIDs for no-coverage recovery."""
+    return _remember_wifi_values_in(
+        _recent_wifi, _recent_wifi_lock, values, now=now
+    )
+
+
+def _remember_request_wifi_values(values, now=None):
+    """Keep only phone-requested BSSIDs for normal WifiTile supplementation."""
+    return _remember_wifi_values_in(
+        _recent_request_wifi, _recent_request_wifi_lock, values, now=now
+    )
 
 
 def remember_wloc_wifi(request_body=None, response_body=None, now=None):
     """Learn BSSID identities in RAM; never persist coordinates or bodies."""
-    values = set()
+    request_values = set()
+    response_values = set()
     if request_body:
         try:
-            values.update(gx.parse_request_context(request_body)["wifi_bssids"])
+            request_values.update(
+                gx.parse_request_context(request_body)["wifi_bssids"]
+            )
         except (KeyError, TypeError, ValueError):
             pass
     if response_body:
         try:
-            values.update(
+            response_values.update(
                 entry["bssid"]
                 for entry in gx.decode_response(response_body)
                 if entry["kind"] == "wifi" and entry["bssid"]
             )
         except (KeyError, TypeError, ValueError):
             pass
-    return _remember_wifi_values(values, now=now)
+    _remember_request_wifi_values(request_values, now=now)
+    return _remember_wifi_values(request_values | response_values, now=now)
+
+
+def _recent_wifi_values_from(cache, lock, now=None):
+    timestamp = time.monotonic() if now is None else float(now)
+    with lock:
+        cutoff = timestamp - RECENT_WIFI_TTL
+        while cache:
+            _key, seen = next(iter(cache.items()))
+            if seen >= cutoff:
+                break
+            cache.popitem(last=False)
+        return list(cache.keys())
 
 
 def recent_wifi_values(now=None):
-    timestamp = time.monotonic() if now is None else float(now)
-    with _recent_wifi_lock:
-        cutoff = timestamp - RECENT_WIFI_TTL
-        while _recent_wifi:
-            _key, seen = next(iter(_recent_wifi.items()))
-            if seen >= cutoff:
-                break
-            _recent_wifi.popitem(last=False)
-        return list(_recent_wifi.keys())
+    return _recent_wifi_values_from(
+        _recent_wifi, _recent_wifi_lock, now=now
+    )
+
+
+def recent_request_wifi_values(now=None):
+    return _recent_wifi_values_from(
+        _recent_request_wifi, _recent_request_wifi_lock, now=now
+    )
 
 
 def build_no_coverage_tile(target_lat, target_lon, now=None):
@@ -411,8 +442,14 @@ def decode_wifi_tile_payload(body, content_encoding):
     return plain, encoding
 
 
-def rewrite_wifi_tile_response(body, content_encoding, lat, lon):
-    """Translate a WifiTile body while preserving encoding and AP geometry."""
+def rewrite_wifi_tile_response(
+    body,
+    content_encoding,
+    lat,
+    lon,
+    recent_bssids=None,
+):
+    """Translate a WifiTile and append missing recent AP identities."""
     plain, encoding = decode_wifi_tile_payload(body, content_encoding)
     remember_wifi_template(plain)
 
@@ -420,10 +457,16 @@ def rewrite_wifi_tile_response(body, content_encoding, lat, lon):
     if count == 0:
         if FAIL_CLOSED and plain:
             raise ValueError("WifiTile response has no recognized devices")
-        return body, 0, anchor
+        return body, 0, anchor, 0
+    replacement, injected = wx.supplement_wifi_tile(
+        replacement,
+        recent_bssids,
+        lat,
+        lon,
+    )
     if encoding == "gzip":
         replacement = gzip.compress(replacement, mtime=0)
-    return replacement, count, anchor
+    return replacement, count, anchor, injected
 
 
 # --- minimal HTTP/1.1 helpers ------------------------------------------------
@@ -865,7 +908,12 @@ def handle(conn, addr, ctx):
                             origin, request_line, header_lines, body
                         )
                     )
-                    new_body, tile_count, _tile_anchor = rewrite_wifi_tile_response(
+                    (
+                        new_body,
+                        tile_count,
+                        _tile_anchor,
+                        _injected,
+                    ) = rewrite_wifi_tile_response(
                         seed_body,
                         seed_headers.get("content-encoding", ""),
                         target[0],
@@ -912,16 +960,34 @@ def handle(conn, addr, ctx):
         elif tile_request and status_code == 200:
             try:
                 lat, lon, _acc = active_target()
-                new_body, tile_count, tile_anchor = rewrite_wifi_tile_response(
-                    resp_body, up_headers.get("content-encoding", ""), lat, lon
+                (
+                    new_body,
+                    tile_count,
+                    tile_anchor,
+                    injected,
+                ) = rewrite_wifi_tile_response(
+                    resp_body,
+                    up_headers.get("content-encoding", ""),
+                    lat,
+                    lon,
+                    recent_bssids=recent_request_wifi_values(),
                 )
                 if tile_count > 0:
                     resp_body = new_body
                     rewritten = True
-                    count += tile_count
+                    count += tile_count + injected
                     anchor_state = "present" if tile_anchor is not None else "none"
-                    log("WIFITILE_TRANSLATE host=%s devices=%d anchor=%s bytes=%d"
-                        % (upstream, tile_count, anchor_state, len(new_body)))
+                    log(
+                        "WIFITILE_TRANSLATE host=%s devices=%d injected=%d "
+                        "anchor=%s bytes=%d"
+                        % (
+                            upstream,
+                            tile_count,
+                            injected,
+                            anchor_state,
+                            len(new_body),
+                        )
+                    )
                 else:
                     log("WIFITILE_EMPTY host=%s bytes=%d (unchanged)"
                         % (upstream, len(resp_body)))

@@ -13,8 +13,8 @@
 ## 安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.5/install.sh \
-  | sudo env HLE_VERSION=v0.2.5 bash -s -- --mode modifier-only
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.6/install.sh \
+  | sudo env HLE_VERSION=v0.2.6 bash -s -- --mode modifier-only
 ```
 
 同一台机器后续只能用相同模式重跑安装器。安装器不会在 `full` 与 `modifier-only` 之间自动迁移，
