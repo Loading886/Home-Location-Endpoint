@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.0 - 2026-07-19
+
+- Add an `advanced` installation mode between the beginner full endpoint and
+  modifier-only integration. It installs a single-operator Telegram menu for
+  switching, adding, deleting, and pausing virtual locations without restarting
+  Xray or the interceptor.
+- Seed nine independently randomized presets per installation: Los Angeles,
+  Tokyo, Hong Kong, Singapore, Kuala Lumpur, Paris, Frankfurt, Reykjavík, and
+  Antarctic Kunlun Station, in addition to the detected egress-IP city.
+- Add a protocol selector in advanced mode: VLESS + REALITY + Vision remains the
+  recommended default, while native `2022-blake3-aes-256-gcm` SS2022 is available
+  with a standard SIP002 URI and TCP/UDP firewall handling.
+- Isolate Telegram credentials and mutable state behind a dedicated unprivileged
+  account. The Bot cannot read the node URI, proxy credentials, or leaf private
+  key; atomic updates retain bounded local backups and only one Chat ID is served.
+- Validate Bot/Chat credentials before managed changes and add a runtime Bot API
+  heartbeat so an alive but disconnected polling process fails `hle verify`.
+- Roll back low-privilege users/groups created by a failed transaction, reject
+  in-place protocol changes early, and preserve advanced credentials and presets
+  on same-mode reinstalls.
+- Expand Linux end-to-end coverage to auto-detect VLESS/SS2022, verify real HTTPS
+  egress and optional SOCKS5 UDP, exercise the complete Telegram location state
+  machine against a loopback test API, and fault-inject a failed Xray startup.
+
 ## 0.1.10 - 2026-07-18
 
 - Distinguish an operator closing the automatic CA profile handoff from a real

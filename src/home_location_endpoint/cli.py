@@ -32,6 +32,7 @@ HLE_SYMLINK = Path("/usr/local/sbin/hle")
 SYSTEMD_DIR = Path("/etc/systemd/system")
 LOGROTATE_FILE = Path("/etc/logrotate.d/home-location-endpoint")
 SYSCTL_FILE = Path("/etc/sysctl.d/99-home-location-endpoint.conf")
+BOT_HEALTH_FILE = Path("/run/home-location-endpoint-bot/health")
 PROFILE_NAME = "Home-Location-Endpoint-CA.mobileconfig"
 PROFILE_PORT = 18080
 PROFILE_TIMEOUT_MINUTES = 100
@@ -43,26 +44,56 @@ PROFILE_HOST_RE = re.compile(
 )
 
 
+def _runtime_settings():
+    path = ETC / "runtime.env"
+    values = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return values
+    for line in lines:
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key not in {"GSLOC_PRESETS", "GSLOC_MODIFIER_STATE"}:
+            raise ValueError("unsupported runtime setting: %s" % key)
+        candidate = Path(value.strip())
+        if not candidate.is_absolute() or ".." in candidate.parts:
+            raise ValueError("runtime path must be absolute and normalized")
+        values[key] = candidate
+    return values
+
+
+def location_config_path():
+    return _runtime_settings().get("GSLOC_PRESETS", ETC / "location.json")
+
+
+def modifier_state_path():
+    return _runtime_settings().get(
+        "GSLOC_MODIFIER_STATE", STATE / MODIFIER_STATE_NAME
+    )
+
+
 def run(command, *, check=True):
     return subprocess.run(command, check=check, text=True)
 
 
 def load_location():
-    return json.loads((ETC / "location.json").read_text(encoding="utf-8"))
+    return json.loads(location_config_path().read_text(encoding="utf-8"))
 
 
 def install_mode():
     path = ETC / "mode"
     if path.exists():
         mode = path.read_text(encoding="utf-8").strip()
-        if mode in {"full", "modifier-only"}:
+        if mode in {"full", "advanced", "modifier-only"}:
             return mode
         raise SystemExit("invalid installation mode recorded in %s" % path)
     return "full" if (ETC / "node-uri.txt").exists() else "modifier-only"
 
 
 def modifier_state():
-    path = STATE / MODIFIER_STATE_NAME
+    path = modifier_state_path()
     try:
         value = path.read_text(encoding="ascii").strip()
     except FileNotFoundError:
@@ -75,9 +106,11 @@ def modifier_state():
 def _write_modifier_state(value):
     if value not in MODIFIER_STATES:
         raise ValueError("invalid modifier state: %s" % value)
-    STATE.mkdir(parents=True, exist_ok=True)
-    temporary = STATE / (".%s.%d.%s" % (
-        MODIFIER_STATE_NAME, os.getpid(), secrets.token_hex(8)
+    path = modifier_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = path.stat() if path.exists() else None
+    temporary = path.parent / (".%s.%d.%s" % (
+        path.name, os.getpid(), secrets.token_hex(8)
     ))
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -85,12 +118,17 @@ def _write_modifier_state(value):
     try:
         descriptor = os.open(temporary, flags, 0o600)
         os.write(descriptor, (value + "\n").encode("ascii"))
-        os.fchmod(descriptor, 0o644)
+        if original is not None:
+            os.fchmod(descriptor, stat.S_IMODE(original.st_mode))
+            if hasattr(os, "fchown"):
+                os.fchown(descriptor, original.st_uid, original.st_gid)
+        else:
+            os.fchmod(descriptor, 0o644)
         os.fsync(descriptor)
         os.close(descriptor)
         descriptor = None
-        os.replace(temporary, STATE / MODIFIER_STATE_NAME)
-        directory = os.open(STATE, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
             os.fsync(directory)
         finally:
@@ -160,8 +198,10 @@ def command_status(_args):
     ))
     print("Coordinate stored: %.6f, %.6f" % (preset["lat"], preset["lon"]))
     services = ["home-location-endpoint.service"]
-    if mode == "full":
+    if mode in {"full", "advanced"}:
         services.append("xray.service")
+    if mode == "advanced":
+        services.append("home-location-telegram-bot.service")
     for service in services:
         result = subprocess.run(
             ["systemctl", "is-active", "--quiet", service], check=False
@@ -176,10 +216,14 @@ def command_relocate(args):
         group = __import__("grp").getgrnam("home-location").gr_gid
     except KeyError as exc:
         raise SystemExit("required group home-location is missing") from exc
+    if install_mode() == "advanced":
+        raise SystemExit(
+            "advanced mode manages multiple presets; switch or add a location in Telegram"
+        )
     command = [
         sys.executable,
         str(APP / "location_picker.py"),
-        "--output", str(ETC / "location.json"),
+        "--output", str(location_config_path()),
         "--cache", str(STATE / "city-boundary.json"),
         "--fallback-radius-m", str(args.fallback_radius_m),
         "--output-mode", "0640",
@@ -455,8 +499,26 @@ def managed_permissions_are_safe(mode):
         (STATE, 0, home_gid, 0o750),
         (STATE / MODIFIER_STATE_NAME, 0, 0, 0o644),
     ]
-    if mode == "full":
+    if mode in {"full", "advanced"}:
         checks.append((ETC / "node-uri.txt", 0, 0, 0o600))
+    if mode == "advanced":
+        try:
+            import pwd
+
+            bot_uid = pwd.getpwnam("home-location-bot").pw_uid
+            bot_gid = grp.getgrnam("home-location-bot").gr_gid
+        except (ImportError, KeyError):
+            return False
+        control = STATE / "control"
+        checks.extend([
+            (ETC / "runtime.env", 0, 0, 0o644),
+            (ETC / "telegram", 0, bot_gid, 0o750),
+            (ETC / "telegram" / "token", 0, bot_gid, 0o640),
+            (ETC / "telegram" / "chat_id", 0, bot_gid, 0o640),
+            (control, bot_uid, home_gid, 0o750),
+            (control / "location.json", bot_uid, home_gid, 0o640),
+            (control / MODIFIER_STATE_NAME, bot_uid, home_gid, 0o640),
+        ])
     for path, uid, gid, expected_mode in checks:
         try:
             metadata = path.stat(follow_symlinks=False)
@@ -470,6 +532,27 @@ def managed_permissions_are_safe(mode):
         ):
             return False
     return True
+
+
+def advanced_presets_are_valid():
+    if install_mode() != "advanced":
+        return True
+    try:
+        import preset_manager
+
+        preset_manager.load(location_config_path())
+    except (ImportError, OSError, ValueError):
+        return False
+    return True
+
+
+def bot_health_is_fresh():
+    try:
+        updated_at = float(BOT_HEALTH_FILE.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return False
+    age = time.time() - updated_at
+    return -30 <= age <= 180
 
 
 def command_verify(_args):
@@ -489,7 +572,7 @@ def command_verify(_args):
         (["openssl", "x509", "-checkhost", "gs-loc-cn.apple.com", "-noout", "-in", str(ETC / "leaf.crt")], "leaf CN hostname scope"),
         (["openssl", "x509", "-checkhost", "gspe85-9-cn-ssl.ls.apple.com", "-noout", "-in", str(ETC / "leaf.crt")], "leaf assist hostname scope"),
     ]
-    if mode == "full":
+    if mode in {"full", "advanced"}:
         checks.insert(0, (
             ["/usr/local/bin/xray", "run", "-test", "-config", "/usr/local/etc/xray/config.json"],
             "Xray config",
@@ -521,6 +604,9 @@ def command_verify(_args):
         (loopback_interceptor_is_listening, "loopback interceptor"),
         (lambda: managed_permissions_are_safe(mode), "managed file permissions"),
     ]
+    if mode == "advanced":
+        function_checks.append((advanced_presets_are_valid, "advanced location presets"))
+        function_checks.append((bot_health_is_fresh, "Telegram Bot API heartbeat"))
     for check, label in function_checks:
         try:
             okay = bool(check())
@@ -529,8 +615,10 @@ def command_verify(_args):
         print("%s: %s" % (label, "OK" if okay else "FAIL"))
         failures += 0 if okay else 1
     services = ["home-location-endpoint.service"]
-    if mode == "full":
+    if mode in {"full", "advanced"}:
         services.append("xray.service")
+    if mode == "advanced":
+        services.append("home-location-telegram-bot.service")
     for service in services:
         try:
             result = subprocess.run(
@@ -657,16 +745,17 @@ def command_uninstall(args):
         raise SystemExit(
             "refusing to uninstall without a root-owned Home-Location-Endpoint marker"
         )
-    # install_mode() reports "full" only when this host actually has the managed
-    # Xray node (node-uri.txt / recorded mode); a modifier-only host that merely
-    # runs the operator's own Xray reports "modifier-only", so full teardown
-    # never touches a proxy core this project did not install.
+    # Only full/advanced modes own the Xray core. A modifier-only host that runs
+    # an operator-managed Xray must never have that proxy core removed here.
     mode = install_mode()
-    full = mode == "full"
+    full = mode in {"full", "advanced"}
+    advanced = mode == "advanced"
     if not args.yes:
         print("This permanently removes Home-Location-Endpoint from this host:")
         print("  - stops and deletes the location interceptor service%s"
               % (" and the managed Xray service" if full else ""))
+        if advanced:
+            print("  - stops the Telegram controller and removes its local credentials")
         print("  - deletes %s, %s, %s, and %s" % (ETC, APP, STATE, LOG))
         if full:
             print("  - deletes the managed Xray binary, its config, and the TCP sysctl file")
@@ -694,9 +783,13 @@ def command_uninstall(args):
         port_value = inventory.get("HLE_PORT", "") if full else ""
         port = port_value if port_value.isdigit() else None
         _systemctl("disable", "--now", "home-location-endpoint.service")
+        if advanced:
+            _systemctl("disable", "--now", "home-location-telegram-bot.service")
         if full:
             _systemctl("disable", "--now", "xray.service")
         services = ["home-location-endpoint.service"]
+        if advanced:
+            services.append("home-location-telegram-bot.service")
         if full:
             services.append("xray.service")
         still_active = [
@@ -722,15 +815,25 @@ def command_uninstall(args):
                 XRAY_CONFIG_DIR,
                 XRAY_BIN,
             ])
+        if advanced:
+            managed_paths.extend([
+                SYSTEMD_DIR / "home-location-telegram-bot.service",
+                Path("/var/backups/home-location-endpoint"),
+            ])
         for path in managed_paths:
             if not _remove_path(path):
                 failures.append(str(path))
         if _systemctl("daemon-reload") != 0:
             failures.append("systemctl daemon-reload")
 
-        account_inventory = [
+        account_inventory = []
+        if advanced:
+            account_inventory.append((
+                "home-location-bot", "HLE_CREATED_BOT_USER", "HLE_CREATED_BOT_GROUP"
+            ))
+        account_inventory.append(
             ("home-location", "HLE_CREATED_HOME_USER", "HLE_CREATED_HOME_GROUP")
-        ]
+        )
         if full:
             account_inventory.append(
                 ("xray", "HLE_CREATED_XRAY_USER", "HLE_CREATED_XRAY_GROUP")
@@ -768,13 +871,13 @@ def command_uninstall(args):
     print(
         "Reminder: delete the CA profile from the iPhone "
         "(Settings > General > VPN & Device Management) and remove the client node%s."
-        % (" / VLESS URI" if full else " and the location routing you added")
+        % (" / proxy URI" if full else " and the location routing you added")
     )
     if full:
         print("TCP sysctl tuning stays live until the next reboot.")
         if port and shutil.which("ufw"):
             print(
-                "Firewall safety: review any TCP %s UFW rule manually; "
+                "Firewall safety: review any TCP/UDP %s UFW rules manually; "
                 "the uninstaller does not delete a rule it cannot prove it created."
                 % port
             )
@@ -796,7 +899,7 @@ def parse_args():
     relocate = subparsers.add_parser("relocate", help="choose another random point in the IP city")
     relocate.add_argument("--fallback-radius-m", type=float, default=3000)
     relocate.set_defaults(func=command_relocate)
-    show_link = subparsers.add_parser("show-link", help="print the VLESS URI")
+    show_link = subparsers.add_parser("show-link", help="print the proxy URI")
     show_link.set_defaults(func=command_show_link)
     profile = subparsers.add_parser(
         "profile", help="show or temporarily serve the CA profile"

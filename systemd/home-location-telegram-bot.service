@@ -1,0 +1,50 @@
+[Unit]
+Description=Home Location Endpoint Telegram location controller
+Wants=network-online.target
+After=network-online.target home-location-endpoint.service
+
+[Service]
+Type=simple
+User=home-location-bot
+Group=home-location-bot
+SupplementaryGroups=home-location
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=HLE_LOCATION_CONFIG=/var/lib/home-location-endpoint/control/location.json
+Environment=HLE_MODIFIER_STATE=/var/lib/home-location-endpoint/control/modifier.state
+Environment=HLE_LOCATION_BACKUPS=/var/backups/home-location-endpoint
+Environment=HLE_TELEGRAM_HEALTH_FILE=/run/home-location-endpoint-bot/health
+RuntimeDirectory=home-location-endpoint-bot
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/python3 /opt/home-location-endpoint/telegram_bot.py
+Restart=always
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectProc=invisible
+ProcSubset=pid
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadOnlyPaths=/etc/home-location-endpoint/telegram
+ReadWritePaths=/var/lib/home-location-endpoint/control /var/backups/home-location-endpoint
+InaccessiblePaths=/etc/home-location-endpoint/install.env /etc/home-location-endpoint/node-uri.txt /etc/home-location-endpoint/leaf.key
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+TasksMax=32
+MemoryMax=96M
+
+[Install]
+WantedBy=multi-user.target

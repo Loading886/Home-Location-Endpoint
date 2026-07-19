@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the Xray server config, VLESS URI, and iOS CA profile."""
+"""Render the Xray server config, proxy URI, and iOS CA profile."""
 
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ LOCATION_DOMAINS = [
     "full:gs-loc-cn.apple.com",
     "regexp:^gspe85(-[0-9]+)?(-cn)?-ssl\\.ls\\.apple\\.com$",
 ]
+PROXY_PROTOCOLS = {"vless-reality", "ss2022"}
+SS2022_METHOD = "2022-blake3-aes-256-gcm"
 SHORT_ID_RE = re.compile(r"^[0-9a-f]{0,16}$")
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{20,100}$")
 HOST_RE = re.compile(
@@ -101,6 +103,17 @@ def validate_short_id(value: str) -> str:
     return value
 
 
+def validate_ss2022_password(value: str) -> str:
+    value = value.strip()
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("invalid SS2022 password") from exc
+    if len(decoded) != 32 or base64.b64encode(decoded).decode("ascii") != value:
+        raise ValueError("SS2022 password must be canonical base64 for 32 bytes")
+    return value
+
+
 def validate_listen_host(value: str) -> str:
     address = ipaddress.ip_address(value.strip())
     if not address.is_unspecified:
@@ -141,77 +154,105 @@ def split_target(target: str) -> tuple[str, int]:
 def build_xray_config(
     *,
     port: int,
-    client_uuid: str,
-    reality_sni: str,
-    reality_target: str,
-    private_key: str,
-    short_id: str,
+    client_uuid: str | None = None,
+    reality_sni: str | None = None,
+    reality_target: str | None = None,
+    private_key: str | None = None,
+    short_id: str | None = None,
+    protocol: str = "vless-reality",
+    ss_password: str | None = None,
     listen_host: str = "0.0.0.0",
     fallback_upload: dict | None = None,
     fallback_download: dict | None = None,
 ) -> dict:
     port = validate_port(port)
-    client_uuid = validate_uuid(client_uuid)
-    reality_sni = validate_host(reality_sni, allow_ip=False)
-    target_host, target_port = split_target(reality_target)
-    private_key = validate_key(private_key, "REALITY private key")
-    short_id = validate_short_id(short_id)
+    if protocol not in PROXY_PROTOCOLS:
+        raise ValueError("unsupported proxy protocol: %s" % protocol)
     listen_host = validate_listen_host(listen_host)
     fallback_upload = validate_fallback_limit(fallback_upload)
     fallback_download = validate_fallback_limit(fallback_download)
-    target_display = (
-        "[%s]:%d" % (target_host, target_port)
-        if ":" in target_host
-        else "%s:%d" % (target_host, target_port)
-    )
 
-    reality_settings = {
-        "show": False,
-        "target": target_display,
-        "xver": 0,
-        "serverNames": [reality_sni],
-        "privateKey": private_key,
-        "shortIds": [short_id],
-    }
-    if fallback_upload is not None:
-        reality_settings["limitFallbackUpload"] = fallback_upload
-    if fallback_download is not None:
-        reality_settings["limitFallbackDownload"] = fallback_download
+    if protocol == "vless-reality":
+        client_uuid = validate_uuid(client_uuid or "")
+        reality_sni = validate_host(reality_sni or "", allow_ip=False)
+        target_host, target_port = split_target(reality_target or "")
+        private_key = validate_key(private_key or "", "REALITY private key")
+        short_id = validate_short_id(short_id or "")
+        target_display = (
+            "[%s]:%d" % (target_host, target_port)
+            if ":" in target_host
+            else "%s:%d" % (target_host, target_port)
+        )
+        reality_settings = {
+            "show": False,
+            "target": target_display,
+            "xver": 0,
+            "serverNames": [reality_sni],
+            "privateKey": private_key,
+            "shortIds": [short_id],
+        }
+        if fallback_upload is not None:
+            reality_settings["limitFallbackUpload"] = fallback_upload
+        if fallback_download is not None:
+            reality_settings["limitFallbackDownload"] = fallback_download
+        stream_settings = {
+            "network": "raw",
+            "security": "reality",
+            "realitySettings": reality_settings,
+        }
+        inbound_tag = "vless-reality-in"
+        inbound = {
+            "tag": inbound_tag,
+            "listen": listen_host,
+            "port": port,
+            "protocol": "vless",
+            "settings": {
+                "clients": [
+                    {
+                        "id": client_uuid,
+                        "email": "home-location-client",
+                        "flow": "xtls-rprx-vision",
+                    }
+                ],
+                "decryption": "none",
+            },
+            "sniffing": {
+                "enabled": True,
+                "destOverride": ["http", "tls", "quic"],
+                "routeOnly": True,
+            },
+            "streamSettings": stream_settings,
+        }
+    else:
+        if fallback_upload is not None or fallback_download is not None:
+            raise ValueError("REALITY fallback limits do not apply to SS2022")
+        inbound_tag = "ss2022-in"
+        inbound = {
+            "tag": inbound_tag,
+            "listen": listen_host,
+            "port": port,
+            "protocol": "shadowsocks",
+            "settings": {
+                "network": "tcp,udp",
+                "method": SS2022_METHOD,
+                "password": validate_ss2022_password(ss_password or ""),
+            },
+            "sniffing": {
+                "enabled": True,
+                "destOverride": ["http", "tls", "quic"],
+                "routeOnly": True,
+            },
+        }
 
-    stream_settings = {
-        "network": "raw",
-        "security": "reality",
-        "realitySettings": reality_settings,
-    }
     if listen_host == "::":
-        stream_settings["sockopt"] = {"v6only": False}
+        inbound.setdefault("streamSettings", {
+            "network": "raw",
+            "security": "none",
+        })["sockopt"] = {"v6only": False}
 
     return {
         "log": {"loglevel": "warning"},
-        "inbounds": [
-            {
-                "tag": "vless-reality-in",
-                "listen": listen_host,
-                "port": port,
-                "protocol": "vless",
-                "settings": {
-                    "clients": [
-                        {
-                            "id": client_uuid,
-                            "email": "home-location-client",
-                            "flow": "xtls-rprx-vision",
-                        }
-                    ],
-                    "decryption": "none",
-                },
-                "sniffing": {
-                    "enabled": True,
-                    "destOverride": ["http", "tls", "quic"],
-                    "routeOnly": True,
-                },
-                "streamSettings": stream_settings,
-            }
-        ],
+        "inbounds": [inbound],
         "outbounds": [
             {
                 "tag": "direct",
@@ -247,7 +288,7 @@ def build_xray_config(
             "rules": [
                 {
                     "type": "field",
-                    "inboundTag": ["vless-reality-in"],
+                    "inboundTag": [inbound_tag],
                     "network": "udp",
                     "port": "443",
                     "domain": list(LOCATION_DOMAINS),
@@ -255,7 +296,7 @@ def build_xray_config(
                 },
                 {
                     "type": "field",
-                    "inboundTag": ["vless-reality-in"],
+                    "inboundTag": [inbound_tag],
                     "network": "tcp",
                     "port": "443",
                     "domain": list(LOCATION_DOMAINS),
@@ -297,6 +338,18 @@ def build_vless_uri(
         _uri_host(server),
         validate_port(port),
         urllib.parse.urlencode(params),
+        urllib.parse.quote("Home-Location-Endpoint"),
+    )
+
+
+def build_ss2022_uri(*, server: str, port: int, password: str) -> str:
+    user_info = "%s:%s" % (SS2022_METHOD, validate_ss2022_password(password))
+    encoded = base64.urlsafe_b64encode(user_info.encode("ascii")).decode("ascii")
+    encoded = encoded.rstrip("=")
+    return "ss://%s@%s:%d#%s" % (
+        encoded,
+        _uri_host(server),
+        validate_port(port),
         urllib.parse.quote("Home-Location-Endpoint"),
     )
 
@@ -352,12 +405,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ca-der", type=Path)
     parser.add_argument("--server", required=True)
     parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--uuid", required=True)
-    parser.add_argument("--reality-sni", required=True)
-    parser.add_argument("--reality-target", required=True)
-    parser.add_argument("--private-key", required=True)
-    parser.add_argument("--public-key", required=True)
-    parser.add_argument("--short-id", required=True)
+    parser.add_argument("--protocol", choices=sorted(PROXY_PROTOCOLS), default="vless-reality")
+    parser.add_argument("--uuid")
+    parser.add_argument("--reality-sni")
+    parser.add_argument("--reality-target")
+    parser.add_argument("--private-key")
+    parser.add_argument("--public-key")
+    parser.add_argument("--short-id")
+    parser.add_argument("--ss-password")
     parser.add_argument("--listen", default="0.0.0.0")
     parser.add_argument("--fallback-upload-after", type=int)
     parser.add_argument("--fallback-upload-rate", type=int)
@@ -397,23 +452,32 @@ def main() -> None:
         ))
     config = build_xray_config(
         port=args.port,
+        protocol=args.protocol,
         client_uuid=args.uuid,
         reality_sni=args.reality_sni,
         reality_target=args.reality_target,
         private_key=args.private_key,
         short_id=args.short_id,
+        ss_password=args.ss_password,
         listen_host=args.listen,
         fallback_upload=fallback_upload,
         fallback_download=fallback_download,
     )
-    uri = build_vless_uri(
-        server=args.server,
-        port=args.port,
-        client_uuid=args.uuid,
-        reality_sni=args.reality_sni,
-        public_key=args.public_key,
-        short_id=args.short_id,
-    )
+    if args.protocol == "vless-reality":
+        uri = build_vless_uri(
+            server=args.server,
+            port=args.port,
+            client_uuid=args.uuid or "",
+            reality_sni=args.reality_sni or "",
+            public_key=args.public_key or "",
+            short_id=args.short_id or "",
+        )
+    else:
+        uri = build_ss2022_uri(
+            server=args.server,
+            port=args.port,
+            password=args.ss_password or "",
+        )
     atomic_write(
         args.config,
         (json.dumps(config, indent=2, sort_keys=False) + "\n").encode("utf-8"),

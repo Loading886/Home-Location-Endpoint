@@ -109,6 +109,7 @@ class InstallAssetTests(unittest.TestCase):
             "下载中……请稍等",
             "选择安装模式：",
             "新手模式：安装完整代理节点和定位修改器",
+            "进阶模式：增加 Telegram 定位菜单",
             "高手模式：仅安装定位修改器",
             "完整模式安装完成。",
             "仅定位修改器模式安装完成。",
@@ -168,6 +169,31 @@ class InstallAssetTests(unittest.TestCase):
         self.assertIn("MemoryMax=256M", service)
         self.assertIn("TasksMax=64", service)
         self.assertIn("maxsize 16M", logrotate)
+
+    def test_advanced_bot_is_low_privilege_and_does_not_receive_node_secrets(self):
+        service = (
+            ROOT / "systemd" / "home-location-telegram-bot.service"
+        ).read_text(encoding="utf-8")
+        self.assertIn("User=home-location-bot", service)
+        self.assertIn("ProtectSystem=strict", service)
+        self.assertIn("NoNewPrivileges=true", service)
+        self.assertIn("InaccessiblePaths=/etc/home-location-endpoint/install.env", service)
+        self.assertIn("/etc/home-location-endpoint/node-uri.txt", service)
+        self.assertIn("RuntimeDirectory=home-location-endpoint-bot", service)
+        self.assertIn("HLE_TELEGRAM_HEALTH_FILE=", service)
+        self.assertNotIn("0.0.0.0", service)
+
+    def test_advanced_catalog_contains_the_documented_cities(self):
+        catalog = json.loads(
+            (ROOT / "configs" / "advanced-location-catalog.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(set(catalog["presets"]), {
+            "los_angeles", "tokyo", "hong_kong", "singapore",
+            "kuala_lumpur", "paris", "frankfurt", "reykjavik",
+            "kunlun_station",
+        })
 
 
 if __name__ == "__main__":

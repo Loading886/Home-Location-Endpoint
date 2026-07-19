@@ -1,4 +1,5 @@
 import plistlib
+import base64
 import unittest
 
 from home_location_endpoint import render
@@ -8,6 +9,7 @@ UUID = "12345678-1234-4234-8234-123456789abc"
 PRIVATE_KEY = "A" * 43
 PUBLIC_KEY = "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI"
 SHORT_ID = "0123456789abcdef"
+SS_PASSWORD = base64.b64encode(b"s" * 32).decode("ascii")
 
 
 class RenderTests(unittest.TestCase):
@@ -132,6 +134,37 @@ class RenderTests(unittest.TestCase):
         inbound = config["inbounds"][0]
         self.assertEqual(inbound["listen"], "::")
         self.assertEqual(inbound["streamSettings"]["sockopt"], {"v6only": False})
+
+    def test_ss2022_config_reuses_scoped_location_routing(self):
+        config = render.build_xray_config(
+            port=443,
+            protocol="ss2022",
+            ss_password=SS_PASSWORD,
+        )
+        inbound = config["inbounds"][0]
+        self.assertEqual(inbound["tag"], "ss2022-in")
+        self.assertEqual(inbound["protocol"], "shadowsocks")
+        self.assertEqual(inbound["settings"], {
+            "network": "tcp,udp",
+            "method": render.SS2022_METHOD,
+            "password": SS_PASSWORD,
+        })
+        self.assertTrue(inbound["sniffing"]["routeOnly"])
+        for rule in config["routing"]["rules"]:
+            self.assertEqual(rule["inboundTag"], ["ss2022-in"])
+
+    def test_ss2022_uri_and_password_validation(self):
+        uri = render.build_ss2022_uri(
+            server="203.0.113.9", port=443, password=SS_PASSWORD
+        )
+        self.assertTrue(uri.startswith("ss://"))
+        encoded = uri.split("//", 1)[1].split("@", 1)[0]
+        decoded = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        self.assertEqual(
+            decoded.decode("ascii"), "%s:%s" % (render.SS2022_METHOD, SS_PASSWORD)
+        )
+        with self.assertRaises(ValueError):
+            render.validate_ss2022_password("not-a-32-byte-key")
 
 
 if __name__ == "__main__":

@@ -25,7 +25,19 @@ MODE=""
 EXISTING_MODE=""
 MODE_EXPLICIT=0
 PROXY_OPTION_EXPLICIT=0
+PROTOCOL_EXPLICIT=0
 SERVER_EXPLICIT=0
+PROXY_PROTOCOL="vless-reality"
+EXISTING_PROXY_PROTOCOL=""
+TELEGRAM_TOKEN=""
+TELEGRAM_CHAT_ID=""
+SS_PASSWORD=""
+FALLBACK_UPLOAD_AFTER=""
+FALLBACK_UPLOAD_RATE=""
+FALLBACK_UPLOAD_BURST=""
+FALLBACK_DOWNLOAD_AFTER=""
+FALLBACK_DOWNLOAD_RATE=""
+FALLBACK_DOWNLOAD_BURST=""
 REALITY_SNI="www.usc.edu"
 REALITY_TARGET="www.usc.edu:443"
 LISTEN_ADDRESS="0.0.0.0"
@@ -41,6 +53,16 @@ CREATED_HOME_USER=0
 CREATED_HOME_GROUP=0
 CREATED_XRAY_USER=0
 CREATED_XRAY_GROUP=0
+CREATED_BOT_USER=0
+CREATED_BOT_GROUP=0
+RUN_CREATED_HOME_USER=0
+RUN_CREATED_HOME_GROUP=0
+RUN_CREATED_XRAY_USER=0
+RUN_CREATED_XRAY_GROUP=0
+RUN_CREATED_BOT_USER=0
+RUN_CREATED_BOT_GROUP=0
+BOT_WAS_ACTIVE=0
+BOT_WAS_ENABLED=0
 TEMP_DIRS=()
 ROLLBACK_PATHS=()
 
@@ -53,18 +75,29 @@ note() {
     printf '\n==> %s\n' "$*"
 }
 
+proxy_mode() {
+    [[ "${MODE:-}" == "full" || "${MODE:-}" == "advanced" ]]
+}
+
+advanced_mode() {
+    [[ "${MODE:-}" == "advanced" ]]
+}
+
 print_help() {
     cat <<'EOF'
 Usage: sudo bash install.sh [options]
 
-  --mode MODE              full or modifier-only (interactive when omitted)
-  --port PORT              VLESS + REALITY listening port (default: 443, full mode)
+  --mode MODE              full, advanced, or modifier-only (interactive when omitted)
+  --protocol PROTOCOL      vless-reality or ss2022 (advanced mode only)
+  --port PORT              proxy listening port (default: 443, proxy modes)
   --server HOST_OR_IP      address written into the client URI (default: detected egress IP)
   --rotate-ca              replace the scoped CA and leaf certificate
 
---port and --server apply to full mode only. REALITY SNI is fixed to www.usc.edu.
+Advanced mode installs a Telegram location bot. For unattended installation, pass
+HLE_TELEGRAM_BOT_TOKEN and HLE_TELEGRAM_CHAT_ID in the environment.
+--port and --server apply to proxy modes. REALITY SNI is fixed to www.usc.edu.
 Remove a completed installation later with: sudo hle uninstall
-The installer never changes SSH ports, keys, or passwords. Full mode may add its TCP port to an already-active UFW policy.
+The installer never changes SSH ports, keys, or passwords. Proxy modes may add their TCP port, plus UDP for SS2022, to an already-active UFW policy.
 EOF
 }
 
@@ -129,11 +162,24 @@ restore_service_state() {
     fi
 }
 
+remove_account_created_this_run() {
+    local user="$1" group="$2" user_created="$3" group_created="$4"
+    if [[ "${user_created}" -eq 1 ]] && id -u "${user}" >/dev/null 2>&1; then
+        userdel "${user}" >/dev/null 2>&1 || true
+    fi
+    if [[ "${group_created}" -eq 1 ]] && getent group "${group}" >/dev/null 2>&1; then
+        groupdel "${group}" >/dev/null 2>&1 || true
+    fi
+}
+
 rollback_transaction() {
     local index path backup_path state
     printf '\n==> Installation failed; restoring the previous managed state\n' >&2
     systemctl stop home-location-endpoint.service >/dev/null 2>&1 || true
-    if [[ "${MODE:-}" == "full" ]]; then
+    if advanced_mode; then
+        systemctl stop home-location-telegram-bot.service >/dev/null 2>&1 || true
+    fi
+    if proxy_mode; then
         systemctl stop xray.service >/dev/null 2>&1 || true
     fi
     for index in "${!ROLLBACK_PATHS[@]}"; do
@@ -149,9 +195,21 @@ rollback_transaction() {
     systemctl daemon-reload >/dev/null 2>&1 || true
     restore_service_state home-location-endpoint.service \
         "${HOME_WAS_ACTIVE}" "${HOME_WAS_ENABLED}"
-    if [[ "${MODE:-}" == "full" ]]; then
+    if proxy_mode; then
         restore_service_state xray.service "${XRAY_WAS_ACTIVE}" "${XRAY_WAS_ENABLED}"
     fi
+    if advanced_mode; then
+        restore_service_state home-location-telegram-bot.service \
+            "${BOT_WAS_ACTIVE}" "${BOT_WAS_ENABLED}"
+    fi
+    remove_account_created_this_run \
+        home-location-bot home-location-bot \
+        "${RUN_CREATED_BOT_USER}" "${RUN_CREATED_BOT_GROUP}"
+    remove_account_created_this_run \
+        xray xray "${RUN_CREATED_XRAY_USER}" "${RUN_CREATED_XRAY_GROUP}"
+    remove_account_created_this_run \
+        home-location home-location \
+        "${RUN_CREATED_HOME_USER}" "${RUN_CREATED_HOME_GROUP}"
 }
 
 begin_transaction() {
@@ -168,7 +226,7 @@ begin_transaction() {
         /etc/systemd/system/home-location-endpoint.service
         /etc/logrotate.d/home-location-endpoint
     )
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         ROLLBACK_PATHS+=(
             "${XRAY_CONFIG_DIR}"
             /usr/local/bin/xray
@@ -176,15 +234,27 @@ begin_transaction() {
             /etc/sysctl.d/99-home-location-endpoint.conf
         )
     fi
+    if advanced_mode; then
+        ROLLBACK_PATHS+=(
+            /etc/systemd/system/home-location-telegram-bot.service
+            /var/backups/home-location-endpoint
+        )
+    fi
     systemctl is-active --quiet home-location-endpoint.service \
         >/dev/null 2>&1 && HOME_WAS_ACTIVE=1
     systemctl is-enabled --quiet home-location-endpoint.service \
         >/dev/null 2>&1 && HOME_WAS_ENABLED=1
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         systemctl is-active --quiet xray.service \
             >/dev/null 2>&1 && XRAY_WAS_ACTIVE=1
         systemctl is-enabled --quiet xray.service \
             >/dev/null 2>&1 && XRAY_WAS_ENABLED=1
+    fi
+    if advanced_mode; then
+        systemctl is-active --quiet home-location-telegram-bot.service \
+            >/dev/null 2>&1 && BOT_WAS_ACTIVE=1
+        systemctl is-enabled --quiet home-location-telegram-bot.service \
+            >/dev/null 2>&1 && BOT_WAS_ENABLED=1
     fi
     for index in "${!ROLLBACK_PATHS[@]}"; do
         path="${ROLLBACK_PATHS[${index}]}"
@@ -213,10 +283,14 @@ preflight_common_state() {
         "${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig" \
         "${ETC_DIR}/xray-location-routing.example.json" \
         "${ETC_DIR}/node-uri.txt" \
+        "${ETC_DIR}/runtime.env" \
+        "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id" \
         "${APP_DIR}/interceptor.py" "${APP_DIR}/gsloc_rewrite.py" \
         "${APP_DIR}/wifitile_rewrite.py" "${APP_DIR}/location_picker.py" \
+        "${APP_DIR}/preset_manager.py" "${APP_DIR}/telegram_bot.py" \
         "${APP_DIR}/cli.py" \
         /etc/systemd/system/home-location-endpoint.service \
+        /etc/systemd/system/home-location-telegram-bot.service \
         /etc/logrotate.d/home-location-endpoint; do
         reject_symlink_if_present "${path}"
     done
@@ -311,7 +385,7 @@ load_existing_settings() {
     if [[ -f "${ETC_DIR}/mode" ]]; then
         mode_from_file="$(<"${ETC_DIR}/mode")"
         case "${mode_from_file}" in
-            full|modifier-only) ;;
+            full|advanced|modifier-only) ;;
             *) die "invalid recorded installation mode: ${mode_from_file}" ;;
         esac
     fi
@@ -321,7 +395,7 @@ load_existing_settings() {
         source "${ETC_DIR}/install.env"
         mode_from_env="${HLE_MODE:-full}"
         case "${mode_from_env}" in
-            full|modifier-only) ;;
+            full|advanced|modifier-only) ;;
             *) die "invalid installation mode in install.env: ${mode_from_env}" ;;
         esac
         PORT="${HLE_PORT:-${PORT}}"
@@ -332,9 +406,14 @@ load_existing_settings() {
         CREATED_HOME_GROUP="${HLE_CREATED_HOME_GROUP:-${CREATED_HOME_GROUP}}"
         CREATED_XRAY_USER="${HLE_CREATED_XRAY_USER:-${CREATED_XRAY_USER}}"
         CREATED_XRAY_GROUP="${HLE_CREATED_XRAY_GROUP:-${CREATED_XRAY_GROUP}}"
+        CREATED_BOT_USER="${HLE_CREATED_BOT_USER:-${CREATED_BOT_USER}}"
+        CREATED_BOT_GROUP="${HLE_CREATED_BOT_GROUP:-${CREATED_BOT_GROUP}}"
+        PROXY_PROTOCOL="${HLE_PROXY_PROTOCOL:-vless-reality}"
+        EXISTING_PROXY_PROTOCOL="${PROXY_PROTOCOL}"
         for inventory_flag in \
             SERVER_EXPLICIT CREATED_HOME_USER CREATED_HOME_GROUP \
-            CREATED_XRAY_USER CREATED_XRAY_GROUP; do
+            CREATED_XRAY_USER CREATED_XRAY_GROUP \
+            CREATED_BOT_USER CREATED_BOT_GROUP; do
             case "${!inventory_flag}" in
                 0|1) ;;
                 *) die "invalid installation inventory flag: ${inventory_flag}" ;;
@@ -364,6 +443,13 @@ parse_args() {
                 PROXY_OPTION_EXPLICIT=1
                 shift 2
                 ;;
+            --protocol)
+                [[ $# -ge 2 ]] || die "--protocol needs a value"
+                PROXY_PROTOCOL="$2"
+                PROTOCOL_EXPLICIT=1
+                PROXY_OPTION_EXPLICIT=1
+                shift 2
+                ;;
             --server)
                 [[ $# -ge 2 ]] || die "--server needs a value"
                 SERVER="$2"
@@ -386,9 +472,15 @@ parse_args() {
     done
     [[ "${PORT}" =~ ^[0-9]+$ ]] || die "port must be numeric"
     (( PORT >= 1 && PORT <= 65535 )) || die "port must be between 1 and 65535"
-    if [[ "${MODE_EXPLICIT}" -eq 1 && "${MODE}" != "full" && "${MODE}" != "modifier-only" ]]; then
-        die "--mode must be full or modifier-only"
+    if [[ "${MODE_EXPLICIT}" -eq 1 \
+          && "${MODE}" != "full" && "${MODE}" != "advanced" \
+          && "${MODE}" != "modifier-only" ]]; then
+        die "--mode must be full, advanced, or modifier-only"
     fi
+    case "${PROXY_PROTOCOL}" in
+        vless-reality|ss2022) ;;
+        *) die "--protocol must be vless-reality or ss2022" ;;
+    esac
 }
 
 select_install_mode() {
@@ -409,18 +501,21 @@ select_install_mode() {
 
 Choose an installation mode:
   1) Full proxy endpoint + location modifier (recommended)
-  2) Location modifier only (advanced; integrate your own proxy)
+  2) Proxy endpoint + Telegram location controller (advanced)
+  3) Location modifier only (expert; integrate your own proxy)
 
 选择安装模式：
   1) 新手模式：安装完整代理节点和定位修改器（推荐）
-  2) 高手模式：仅安装定位修改器，需要自行配置代理接入
+  2) 进阶模式：增加 Telegram 定位菜单，并可选择接入协议
+  3) 高手模式：仅安装定位修改器，需要自行配置代理接入
 EOF
             printf 'Selection / 请选择 [1]: ' >&3
             read -r choice <&3 || true
             exec 3>&-
             case "${choice:-1}" in
                 1) MODE="full" ;;
-                2) MODE="modifier-only" ;;
+                2) MODE="advanced" ;;
+                3) MODE="modifier-only" ;;
                 *) die "invalid installation mode selection" ;;
             esac
         else
@@ -429,12 +524,91 @@ EOF
         fi
     fi
     case "${MODE}" in
-        full|modifier-only) ;;
-        *) die "mode must be full or modifier-only" ;;
+        full|advanced|modifier-only) ;;
+        *) die "mode must be full, advanced, or modifier-only" ;;
     esac
     if [[ "${MODE}" == "modifier-only" && "${PROXY_OPTION_EXPLICIT}" -eq 1 ]]; then
-        die "--port, --server, and REALITY options apply only to full mode"
+        die "--port, --server, and --protocol apply only to proxy modes"
     fi
+    if proxy_mode && [[ -n "${EXISTING_MODE}" \
+          && "${PROTOCOL_EXPLICIT}" -eq 1 \
+          && "${PROXY_PROTOCOL}" != "${EXISTING_PROXY_PROTOCOL}" ]]; then
+        die "changing an existing proxy protocol in place is not supported"
+    fi
+    if [[ "${MODE}" == "full" && "${PROXY_PROTOCOL}" != "vless-reality" ]]; then
+        die "SS2022 is available in advanced mode; beginner mode stays VLESS + REALITY"
+    fi
+}
+
+select_advanced_options() {
+    local choice="" tty_open=0
+    advanced_mode || return 0
+
+    if [[ -n "${EXISTING_MODE}" ]]; then
+        [[ -f "${ETC_DIR}/telegram/token" && -f "${ETC_DIR}/telegram/chat_id" ]] \
+            || die "advanced installation is missing Telegram credentials"
+        TELEGRAM_TOKEN="$(<"${ETC_DIR}/telegram/token")"
+        TELEGRAM_CHAT_ID="$(<"${ETC_DIR}/telegram/chat_id")"
+    else
+        if [[ "${PROTOCOL_EXPLICIT}" -eq 0 ]]; then
+            if { exec 3<>/dev/tty; } 2>/dev/null; then
+                tty_open=1
+                cat >&3 <<'EOF'
+
+Choose the proxy protocol for advanced mode:
+  1) VLESS + REALITY + Vision (recommended for public-network use)
+  2) Shadowsocks 2022 (2022-blake3-aes-256-gcm)
+
+选择进阶模式的代理协议：
+  1) VLESS + REALITY + Vision（公网接入推荐）
+  2) Shadowsocks 2022（2022-blake3-aes-256-gcm）
+EOF
+                printf 'Protocol / 协议 [1]: ' >&3
+                read -r choice <&3 || true
+                case "${choice:-1}" in
+                    1) PROXY_PROTOCOL="vless-reality" ;;
+                    2) PROXY_PROTOCOL="ss2022" ;;
+                    *) exec 3>&-; die "invalid protocol selection" ;;
+                esac
+            else
+                die "advanced unattended install requires --protocol"
+            fi
+        fi
+
+        TELEGRAM_TOKEN="${HLE_TELEGRAM_BOT_TOKEN:-}"
+        TELEGRAM_CHAT_ID="${HLE_TELEGRAM_CHAT_ID:-}"
+        if [[ -z "${TELEGRAM_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+            if [[ "${tty_open}" -eq 0 ]] && ! { exec 3<>/dev/tty; } 2>/dev/null; then
+                die "advanced unattended install requires HLE_TELEGRAM_BOT_TOKEN and HLE_TELEGRAM_CHAT_ID"
+            fi
+            tty_open=1
+            cat >&3 <<'EOF'
+
+Create a dedicated bot with @BotFather, send /start to that bot, then paste the
+token and your numeric chat ID below. The token is hidden while typing.
+
+请先通过 @BotFather 创建一个专用 Bot，并向它发送 /start；然后在下方粘贴
+Bot Token 和你自己的数字 Chat ID。输入 Token 时终端不会显示字符。
+EOF
+            printf 'Bot token / Bot Token: ' >&3
+            read -rs TELEGRAM_TOKEN <&3 || true
+            printf '\nChat ID / Chat ID: ' >&3
+            read -r TELEGRAM_CHAT_ID <&3 || true
+        fi
+        [[ "${tty_open}" -eq 0 ]] || exec 3>&-
+    fi
+
+    [[ "${TELEGRAM_TOKEN}" =~ ^[0-9]{6,20}:[A-Za-z0-9_-]{20,100}$ ]] \
+        || die "Telegram bot token format is invalid"
+    [[ "${TELEGRAM_CHAT_ID}" =~ ^-?[0-9]{5,20}$ ]] \
+        || die "Telegram chat ID format is invalid"
+
+    note "Validating the Telegram bot and authorized chat"
+    HLE_TELEGRAM_BOT_TOKEN="${TELEGRAM_TOKEN}" \
+    HLE_TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID}" \
+    PYTHONPATH="${SOURCE_DIR}/src" \
+        python3 -m home_location_endpoint.telegram_bot --validate-credentials \
+        || die "Telegram validation failed; send /start to the bot and check both values"
 }
 
 check_os() {
@@ -448,7 +622,7 @@ check_os() {
         debian:12|debian:13|ubuntu:22.04|ubuntu:24.04) ;;
         *) die "supported systems: Debian 12/13 and Ubuntu 22.04/24.04; found ${ID}:${VERSION_ID}" ;;
     esac
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         case "$(dpkg --print-architecture)" in
             amd64)
                 XRAY_ASSET="Xray-linux-64.zip"
@@ -458,7 +632,7 @@ check_os() {
                 XRAY_ASSET="Xray-linux-arm64-v8a.zip"
                 XRAY_SHA256="${XRAY_ARM64_SHA256}"
                 ;;
-            *) die "full mode supports amd64 and arm64; modifier-only is architecture independent" ;;
+            *) die "proxy modes support amd64 and arm64; modifier-only is architecture independent" ;;
         esac
     fi
 }
@@ -492,6 +666,27 @@ except OSError as exc:
 finally:
     sock.close()
 PY
+    if [[ "${PROXY_PROTOCOL}" == "ss2022" ]]; then
+        python3 - "${PORT}" "${LISTEN_ADDRESS}" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+host = sys.argv[2]
+family = socket.AF_INET6 if ":" in host else socket.AF_INET
+sock = socket.socket(family, socket.SOCK_DGRAM)
+try:
+    if family == socket.AF_INET6:
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.bind((host, port, 0, 0))
+    else:
+        sock.bind((host, port))
+except OSError as exc:
+    raise SystemExit("UDP port %d is unavailable: %s" % (port, exc))
+finally:
+    sock.close()
+PY
+    fi
 }
 
 detect_listen_address() {
@@ -515,16 +710,16 @@ PY
 }
 
 check_existing_installation() {
-    if [[ "${MODE}" == "full" && -L "${XRAY_CONFIG_DIR}" ]]; then
+    if proxy_mode && [[ -L "${XRAY_CONFIG_DIR}" ]]; then
         die "Xray config directory must not be a symlink: ${XRAY_CONFIG_DIR}"
     fi
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         reject_symlink_if_present "${XRAY_CONFIG_DIR}/config.json"
         reject_symlink_if_present /usr/local/bin/xray
         reject_symlink_if_present /etc/systemd/system/xray.service
         reject_symlink_if_present /etc/sysctl.d/99-home-location-endpoint.conf
     fi
-    if [[ "${MODE}" == "full" && ! -f "${MARKER}" ]] && {
+    if proxy_mode && [[ ! -f "${MARKER}" ]] && {
         [[ -f "${XRAY_CONFIG_DIR}/config.json" ]] ||
         [[ -f /etc/systemd/system/xray.service ]] ||
         [[ -f /lib/systemd/system/xray.service ]] ||
@@ -532,13 +727,20 @@ check_existing_installation() {
     }; then
         die "an unmanaged Xray installation already exists; use a clean landing server"
     fi
+    if advanced_mode && [[ ! -f "${MARKER}" ]] && {
+        [[ -f /etc/systemd/system/home-location-telegram-bot.service ]] ||
+        path_exists "${ETC_DIR}/telegram" ||
+        path_exists "${STATE_DIR}/control";
+    }; then
+        die "unmanaged Telegram location-control files already exist; inspect them first"
+    fi
 }
 
 check_resources() {
     local available_kb minimum_kb memory_kb
     available_kb="$(df -Pk / | awk 'NR==2 {print $4}')"
     minimum_kb=51200
-    [[ "${MODE}" == "full" ]] && minimum_kb=204800
+    proxy_mode && minimum_kb=204800
     if [[ ! "${available_kb}" =~ ^[0-9]+$ || "${available_kb}" -lt "${minimum_kb}" ]]; then
         die "insufficient free disk space; ${MODE} mode needs at least $((minimum_kb / 1024)) MiB"
     fi
@@ -612,7 +814,7 @@ install_packages() {
     else
         note "Optional qrencode package is unavailable; profile download URLs will still work"
     fi
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l \
             apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y -qq \
             iproute2 kmod procps unzip uuid-runtime
@@ -696,10 +898,12 @@ apply_baseline() {
 
 ensure_system_account() {
     local user="$1" group="$2" user_flag="$3" group_flag="$4"
+    local run_user_flag="$5" run_group_flag="$6"
     local gid uid primary_group shell
     if ! getent group "${group}" >/dev/null; then
         groupadd --system "${group}"
         printf -v "${group_flag}" '%s' 1
+        printf -v "${run_group_flag}" '%s' 1
     fi
     gid="$(getent group "${group}" | cut -d: -f3)"
     [[ "${gid}" =~ ^[0-9]+$ && "${gid}" -lt 1000 ]] \
@@ -719,25 +923,46 @@ ensure_system_account() {
     useradd --system --gid "${group}" --home-dir /nonexistent \
         --shell /usr/sbin/nologin "${user}"
     printf -v "${user_flag}" '%s' 1
+    printf -v "${run_user_flag}" '%s' 1
 }
 
 create_accounts_and_directories() {
     ensure_system_account \
-        home-location home-location CREATED_HOME_USER CREATED_HOME_GROUP
+        home-location home-location \
+        CREATED_HOME_USER CREATED_HOME_GROUP \
+        RUN_CREATED_HOME_USER RUN_CREATED_HOME_GROUP
 
     install -d -o root -g home-location -m 0750 "${ETC_DIR}"
     install -d -o root -g root -m 0755 "${APP_DIR}"
     install -d -o root -g home-location -m 0750 "${STATE_DIR}"
     install -d -o home-location -g home-location -m 0750 "${LOG_DIR}"
-    if [[ "${MODE}" == "full" ]]; then
-        ensure_system_account xray xray CREATED_XRAY_USER CREATED_XRAY_GROUP
+    if proxy_mode; then
+        ensure_system_account xray xray \
+            CREATED_XRAY_USER CREATED_XRAY_GROUP \
+            RUN_CREATED_XRAY_USER RUN_CREATED_XRAY_GROUP
         install -d -o root -g xray -m 0750 "${XRAY_CONFIG_DIR}"
+    fi
+    if advanced_mode; then
+        ensure_system_account \
+            home-location-bot home-location-bot \
+            CREATED_BOT_USER CREATED_BOT_GROUP \
+            RUN_CREATED_BOT_USER RUN_CREATED_BOT_GROUP
+        usermod -a -G home-location home-location-bot
+        install -d -o root -g home-location-bot -m 0750 "${ETC_DIR}/telegram"
+        install -d -o home-location-bot -g home-location -m 0750 \
+            "${STATE_DIR}/control"
+        install -d -o home-location-bot -g home-location-bot -m 0700 \
+            /var/backups/home-location-endpoint
     fi
 
     install -o root -g root -m 0755 "${SOURCE_DIR}/src/home_location_endpoint/interceptor.py" "${APP_DIR}/interceptor.py"
     install -o root -g root -m 0644 "${SOURCE_DIR}/src/home_location_endpoint/gsloc_rewrite.py" "${APP_DIR}/gsloc_rewrite.py"
     install -o root -g root -m 0644 "${SOURCE_DIR}/src/home_location_endpoint/wifitile_rewrite.py" "${APP_DIR}/wifitile_rewrite.py"
     install -o root -g root -m 0755 "${SOURCE_DIR}/src/home_location_endpoint/location_picker.py" "${APP_DIR}/location_picker.py"
+    install -o root -g root -m 0644 "${SOURCE_DIR}/src/home_location_endpoint/preset_manager.py" "${APP_DIR}/preset_manager.py"
+    if advanced_mode; then
+        install -o root -g root -m 0755 "${SOURCE_DIR}/src/home_location_endpoint/telegram_bot.py" "${APP_DIR}/telegram_bot.py"
+    fi
     install -o root -g root -m 0755 "${SOURCE_DIR}/src/home_location_endpoint/cli.py" "${APP_DIR}/cli.py"
     install -o root -g root -m 0644 \
         "${SOURCE_DIR}/configs/xray-location-routing.example.json" \
@@ -759,6 +984,66 @@ create_accounts_and_directories() {
     esac
     chown root:root "${STATE_DIR}/modifier.state"
     chmod 0644 "${STATE_DIR}/modifier.state"
+}
+
+prepare_advanced_control() {
+    local control_dir="${STATE_DIR}/control"
+    local location_file="${control_dir}/location.json"
+    local modifier_file="${control_dir}/modifier.state"
+    local bot_uid bot_gid home_gid
+    advanced_mode || return 0
+    bot_uid="$(id -u home-location-bot)"
+    bot_gid="$(id -g home-location-bot)"
+    home_gid="$(id -g home-location)"
+
+    if [[ -z "${EXISTING_MODE}" ]]; then
+        PYTHONPATH="${SOURCE_DIR}/src" python3 - \
+            "${ETC_DIR}/location.json" \
+            "${SOURCE_DIR}/configs/advanced-location-catalog.json" \
+            "${location_file}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from home_location_endpoint import preset_manager
+
+source = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+catalog = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+output = preset_manager.build_advanced_config(source, catalog)
+preset_manager.atomic_write(Path(sys.argv[3]), output)
+PY
+        install -o home-location-bot -g home-location -m 0640 \
+            "${STATE_DIR}/modifier.state" "${modifier_file}"
+    else
+        [[ -f "${location_file}" && -f "${modifier_file}" ]] \
+            || die "advanced control state is incomplete"
+        PYTHONPATH="${SOURCE_DIR}/src" python3 -c \
+            'import sys; from home_location_endpoint.preset_manager import load; load(sys.argv[1])' \
+            "${location_file}" || die "advanced location presets are invalid"
+        case "$(<"${modifier_file}")" in
+            active|paused) ;;
+            *) die "advanced modifier state is invalid" ;;
+        esac
+    fi
+
+    chown home-location-bot:home-location "${location_file}" "${modifier_file}"
+    chmod 0640 "${location_file}" "${modifier_file}"
+    cat > "${ETC_DIR}/runtime.env" <<EOF
+GSLOC_PRESETS=${location_file}
+GSLOC_MODIFIER_STATE=${modifier_file}
+EOF
+    chown root:root "${ETC_DIR}/runtime.env"
+    chmod 0644 "${ETC_DIR}/runtime.env"
+    printf '%s\n' "${TELEGRAM_TOKEN}" > "${ETC_DIR}/telegram/token"
+    printf '%s\n' "${TELEGRAM_CHAT_ID}" > "${ETC_DIR}/telegram/chat_id"
+    chown root:home-location-bot \
+        "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id"
+    chmod 0640 "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id"
+
+    [[ "$(stat -c %u "${location_file}")" == "${bot_uid}" \
+      && "$(stat -c %g "${location_file}")" == "${home_gid}" \
+      && "$(stat -c %g "${ETC_DIR}/telegram/token")" == "${bot_gid}" ]] \
+        || die "advanced control ownership validation failed"
 }
 
 select_random_location() {
@@ -888,31 +1173,48 @@ load_or_create_credentials() {
     if [[ -f "${ETC_DIR}/install.env" ]]; then
         # shellcheck disable=SC1091
         source "${ETC_DIR}/install.env"
-        [[ -n "${HLE_UUID:-}" && -n "${HLE_PRIVATE_KEY:-}" \
-          && -n "${HLE_PUBLIC_KEY:-}" && -n "${HLE_SHORT_ID:-}" ]] \
-            || die "existing full-mode credentials are incomplete"
-        CLIENT_UUID="${HLE_UUID}"
-        PRIVATE_KEY="${HLE_PRIVATE_KEY}"
-        PUBLIC_KEY="${HLE_PUBLIC_KEY}"
-        SHORT_ID="${HLE_SHORT_ID}"
-        derived_output="$(/usr/local/bin/xray x25519 -i "${PRIVATE_KEY}")"
-        derived_public="$(printf '%s\n' "${derived_output}" | awk -F': *' \
-            '/^(Password \(PublicKey\)|Password|PublicKey|Public key):/{print $2; exit}')"
-        [[ -n "${derived_public}" && "${derived_public}" == "${PUBLIC_KEY}" ]] \
-            || die "existing REALITY public/private key pair does not match"
+        [[ "${HLE_PROXY_PROTOCOL:-vless-reality}" == "${PROXY_PROTOCOL}" ]] \
+            || die "changing the proxy protocol in place is not supported"
+        if [[ "${PROXY_PROTOCOL}" == "vless-reality" ]]; then
+            [[ -n "${HLE_UUID:-}" && -n "${HLE_PRIVATE_KEY:-}" \
+              && -n "${HLE_PUBLIC_KEY:-}" && -n "${HLE_SHORT_ID:-}" ]] \
+                || die "existing VLESS + REALITY credentials are incomplete"
+            CLIENT_UUID="${HLE_UUID}"
+            PRIVATE_KEY="${HLE_PRIVATE_KEY}"
+            PUBLIC_KEY="${HLE_PUBLIC_KEY}"
+            SHORT_ID="${HLE_SHORT_ID}"
+            derived_output="$(/usr/local/bin/xray x25519 -i "${PRIVATE_KEY}")"
+            derived_public="$(printf '%s\n' "${derived_output}" | awk -F': *' \
+                '/^(Password \(PublicKey\)|Password|PublicKey|Public key):/{print $2; exit}')"
+            [[ -n "${derived_public}" && "${derived_public}" == "${PUBLIC_KEY}" ]] \
+                || die "existing REALITY public/private key pair does not match"
+        else
+            SS_PASSWORD="${HLE_SS_PASSWORD:-}"
+            PYTHONPATH="${SOURCE_DIR}/src" python3 -c \
+                'import sys; from home_location_endpoint.render import validate_ss2022_password; validate_ss2022_password(sys.argv[1])' \
+                "${SS_PASSWORD}" || die "existing SS2022 password is invalid"
+        fi
         return
     fi
-    CLIENT_UUID="$(/usr/local/bin/xray uuid)"
-    key_output="$(/usr/local/bin/xray x25519)"
-    PRIVATE_KEY="$(printf '%s\n' "${key_output}" | awk -F': *' '/^(PrivateKey|Private key):/{print $2; exit}')"
-    PUBLIC_KEY="$(printf '%s\n' "${key_output}" | awk -F': *' '/^(Password \(PublicKey\)|Password|PublicKey|Public key):/{print $2; exit}')"
-    SHORT_ID="$(openssl rand -hex 8)"
-    [[ -n "${CLIENT_UUID}" && -n "${PRIVATE_KEY}" && -n "${PUBLIC_KEY}" && -n "${SHORT_ID}" ]] \
-        || die "could not parse generated Xray credentials"
+    if [[ "${PROXY_PROTOCOL}" == "vless-reality" ]]; then
+        CLIENT_UUID="$(/usr/local/bin/xray uuid)"
+        key_output="$(/usr/local/bin/xray x25519)"
+        PRIVATE_KEY="$(printf '%s\n' "${key_output}" | awk -F': *' '/^(PrivateKey|Private key):/{print $2; exit}')"
+        PUBLIC_KEY="$(printf '%s\n' "${key_output}" | awk -F': *' '/^(Password \(PublicKey\)|Password|PublicKey|Public key):/{print $2; exit}')"
+        SHORT_ID="$(openssl rand -hex 8)"
+        [[ -n "${CLIENT_UUID}" && -n "${PRIVATE_KEY}" && -n "${PUBLIC_KEY}" && -n "${SHORT_ID}" ]] \
+            || die "could not parse generated Xray credentials"
+    else
+        SS_PASSWORD="$(openssl rand -base64 32 | tr -d '\n')"
+        PYTHONPATH="${SOURCE_DIR}/src" python3 -c \
+            'import sys; from home_location_endpoint.render import validate_ss2022_password; validate_ss2022_password(sys.argv[1])' \
+            "${SS_PASSWORD}" || die "could not generate a valid SS2022 password"
+    fi
 }
 
 render_and_validate() {
     local stage
+    local -a render_args
     note "Rendering and validating the endpoint configuration"
     stage="$(mktemp -d)"
     register_temp_dir "${stage}"
@@ -920,20 +1222,30 @@ render_and_validate() {
     # x25519 keys are base64url and can legitimately begin with '-', which the
     # space-separated form makes argparse reject as an option ("expected one
     # argument"). The '=' form is unambiguous regardless of a leading dash.
-    python3 "${SOURCE_DIR}/src/home_location_endpoint/render.py" \
-        --config "${stage}/config.json" \
-        --uri "${stage}/node-uri.txt" \
-        --server="${SERVER}" --port "${PORT}" --uuid="${CLIENT_UUID}" \
-        --reality-sni="${REALITY_SNI}" --reality-target="${REALITY_TARGET}" \
-        --private-key="${PRIVATE_KEY}" --public-key="${PUBLIC_KEY}" \
-        --short-id="${SHORT_ID}" \
-        --listen="${LISTEN_ADDRESS}" \
-        --fallback-upload-after "${FALLBACK_UPLOAD_AFTER}" \
-        --fallback-upload-rate "${FALLBACK_UPLOAD_RATE}" \
-        --fallback-upload-burst "${FALLBACK_UPLOAD_BURST}" \
-        --fallback-download-after "${FALLBACK_DOWNLOAD_AFTER}" \
-        --fallback-download-rate "${FALLBACK_DOWNLOAD_RATE}" \
-        --fallback-download-burst "${FALLBACK_DOWNLOAD_BURST}"
+    render_args=(
+        --config "${stage}/config.json"
+        --uri "${stage}/node-uri.txt"
+        --server="${SERVER}" --port "${PORT}"
+        --protocol "${PROXY_PROTOCOL}"
+        --listen="${LISTEN_ADDRESS}"
+    )
+    if [[ "${PROXY_PROTOCOL}" == "vless-reality" ]]; then
+        render_args+=(
+            --uuid="${CLIENT_UUID}"
+            --reality-sni="${REALITY_SNI}" --reality-target="${REALITY_TARGET}"
+            --private-key="${PRIVATE_KEY}" --public-key="${PUBLIC_KEY}"
+            --short-id="${SHORT_ID}"
+            --fallback-upload-after "${FALLBACK_UPLOAD_AFTER}"
+            --fallback-upload-rate "${FALLBACK_UPLOAD_RATE}"
+            --fallback-upload-burst "${FALLBACK_UPLOAD_BURST}"
+            --fallback-download-after "${FALLBACK_DOWNLOAD_AFTER}"
+            --fallback-download-rate "${FALLBACK_DOWNLOAD_RATE}"
+            --fallback-download-burst "${FALLBACK_DOWNLOAD_BURST}"
+        )
+    else
+        render_args+=(--ss-password="${SS_PASSWORD}")
+    fi
+    python3 "${SOURCE_DIR}/src/home_location_endpoint/render.py" "${render_args[@]}"
     /usr/local/bin/xray run -test -config "${stage}/config.json"
     install -o root -g xray -m 0640 "${stage}/config.json" "${XRAY_CONFIG_DIR}/config.json"
     install -o root -g root -m 0600 "${stage}/node-uri.txt" "${ETC_DIR}/node-uri.txt"
@@ -948,12 +1260,19 @@ render_and_validate() {
         printf 'HLE_CREATED_HOME_GROUP=%q\n' "${CREATED_HOME_GROUP}"
         printf 'HLE_CREATED_XRAY_USER=%q\n' "${CREATED_XRAY_USER}"
         printf 'HLE_CREATED_XRAY_GROUP=%q\n' "${CREATED_XRAY_GROUP}"
-        printf 'HLE_REALITY_SNI=%q\n' "${REALITY_SNI}"
-        printf 'HLE_REALITY_TARGET=%q\n' "${REALITY_TARGET}"
-        printf 'HLE_UUID=%q\n' "${CLIENT_UUID}"
-        printf 'HLE_PRIVATE_KEY=%q\n' "${PRIVATE_KEY}"
-        printf 'HLE_PUBLIC_KEY=%q\n' "${PUBLIC_KEY}"
-        printf 'HLE_SHORT_ID=%q\n' "${SHORT_ID}"
+        printf 'HLE_CREATED_BOT_USER=%q\n' "${CREATED_BOT_USER}"
+        printf 'HLE_CREATED_BOT_GROUP=%q\n' "${CREATED_BOT_GROUP}"
+        printf 'HLE_PROXY_PROTOCOL=%q\n' "${PROXY_PROTOCOL}"
+        if [[ "${PROXY_PROTOCOL}" == "vless-reality" ]]; then
+            printf 'HLE_REALITY_SNI=%q\n' "${REALITY_SNI}"
+            printf 'HLE_REALITY_TARGET=%q\n' "${REALITY_TARGET}"
+            printf 'HLE_UUID=%q\n' "${CLIENT_UUID}"
+            printf 'HLE_PRIVATE_KEY=%q\n' "${PRIVATE_KEY}"
+            printf 'HLE_PUBLIC_KEY=%q\n' "${PUBLIC_KEY}"
+            printf 'HLE_SHORT_ID=%q\n' "${SHORT_ID}"
+        else
+            printf 'HLE_SS_PASSWORD=%q\n' "${SS_PASSWORD}"
+        fi
         printf 'HLE_LISTEN_ADDRESS=%q\n' "${LISTEN_ADDRESS}"
         printf 'HLE_FALLBACK_UPLOAD_AFTER=%q\n' "${FALLBACK_UPLOAD_AFTER}"
         printf 'HLE_FALLBACK_UPLOAD_RATE=%q\n' "${FALLBACK_UPLOAD_RATE}"
@@ -963,7 +1282,8 @@ render_and_validate() {
         printf 'HLE_FALLBACK_DOWNLOAD_BURST=%q\n' "${FALLBACK_DOWNLOAD_BURST}"
     } > "${ETC_DIR}/install.env"
     chmod 0600 "${ETC_DIR}/install.env"
-    printf 'mode=%s\nxray=%s\n' "${MODE}" "${XRAY_VERSION}" > "${MARKER}"
+    printf 'mode=%s\nxray=%s\nprotocol=%s\n' \
+        "${MODE}" "${XRAY_VERSION}" "${PROXY_PROTOCOL}" > "${MARKER}"
     chmod 0600 "${MARKER}"
 }
 
@@ -1007,9 +1327,26 @@ normalize_managed_permissions() {
     chmod 0640 \
         "${ETC_DIR}/location.json" "${ETC_DIR}/jitter.seed" \
         "${ETC_DIR}/leaf.crt" "${ETC_DIR}/leaf.key"
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         chown root:root "${ETC_DIR}/node-uri.txt"
         chmod 0600 "${ETC_DIR}/node-uri.txt"
+    fi
+    if advanced_mode; then
+        chown root:root "${ETC_DIR}/runtime.env"
+        chmod 0644 "${ETC_DIR}/runtime.env"
+        chown root:home-location-bot "${ETC_DIR}/telegram"
+        chmod 0750 "${ETC_DIR}/telegram"
+        chown root:home-location-bot \
+            "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id"
+        chmod 0640 "${ETC_DIR}/telegram/token" "${ETC_DIR}/telegram/chat_id"
+        chown home-location-bot:home-location "${STATE_DIR}/control"
+        chmod 0750 "${STATE_DIR}/control"
+        chown home-location-bot:home-location \
+            "${STATE_DIR}/control/location.json" \
+            "${STATE_DIR}/control/modifier.state"
+        chmod 0640 \
+            "${STATE_DIR}/control/location.json" \
+            "${STATE_DIR}/control/modifier.state"
     fi
 }
 
@@ -1021,21 +1358,41 @@ install_services() {
     install -o root -g root -m 0644 \
         "${SOURCE_DIR}/configs/home-location-endpoint.logrotate" \
         /etc/logrotate.d/home-location-endpoint
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         install -o root -g root -m 0644 \
             "${SOURCE_DIR}/systemd/xray.service" \
             /etc/systemd/system/xray.service
+    fi
+    if advanced_mode; then
+        install -o root -g root -m 0644 \
+            "${SOURCE_DIR}/systemd/home-location-telegram-bot.service" \
+            /etc/systemd/system/home-location-telegram-bot.service
     fi
     systemctl daemon-reload
     systemctl enable home-location-endpoint.service >/dev/null
     systemctl restart home-location-endpoint.service \
         || die "the location interceptor failed to start; inspect journalctl -u home-location-endpoint"
-    if [[ "${MODE}" != "full" ]]; then
+    if ! proxy_mode; then
         return
     fi
     systemctl enable xray.service >/dev/null
     systemctl restart xray.service \
         || die "Xray failed to start; the installation transaction will be rolled back"
+    if advanced_mode; then
+        systemctl enable home-location-telegram-bot.service >/dev/null
+        rm -f /run/home-location-endpoint-bot/health
+        systemctl restart home-location-telegram-bot.service \
+            || die "the Telegram controller failed to start; the installation transaction will be rolled back"
+        local attempt
+        for ((attempt = 0; attempt < 200; attempt++)); do
+            [[ -s /run/home-location-endpoint-bot/health ]] && break
+            systemctl is-active --quiet home-location-telegram-bot.service \
+                || die "the Telegram controller exited before becoming ready"
+            sleep 0.2
+        done
+        [[ -s /run/home-location-endpoint-bot/health ]] \
+            || die "the Telegram controller could not reach the Bot API"
+    fi
 }
 
 open_active_firewall() {
@@ -1043,6 +1400,11 @@ open_active_firewall() {
         note "Allowing TCP ${PORT} in the already-active UFW policy"
         if ! ufw allow "${PORT}/tcp" comment "Home Location Endpoint" >/dev/null; then
             printf 'WARNING: UFW is active but its proxy-port rule could not be added.\n' >&2
+        fi
+        if [[ "${PROXY_PROTOCOL}" == "ss2022" ]]; then
+            if ! ufw allow "${PORT}/udp" comment "Home Location Endpoint SS2022" >/dev/null; then
+                printf 'WARNING: UFW is active but its SS2022 UDP rule could not be added.\n' >&2
+            fi
         fi
         if [[ -n "${PREVIOUS_PORT}" && "${PREVIOUS_PORT}" != "${PORT}" ]]; then
             printf 'WARNING: the proxy port changed from %s to %s; review and remove the old UFW rule if it was project-created.\n' \
@@ -1054,24 +1416,33 @@ open_active_firewall() {
 }
 
 show_result() {
-    local city fingerprint server_label
-    city="$(python3 -c 'import json; d=json.load(open("/etc/home-location-endpoint/location.json")); print(d["source"]["city"]+", "+d["source"]["country_code"])')"
+    local city fingerprint server_label protocol_label location_file mode_completion_zh
+    location_file="${ETC_DIR}/location.json"
+    advanced_mode && location_file="${STATE_DIR}/control/location.json"
+    city="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["source"]["city"]+", "+d["source"]["country_code"])' "${location_file}")"
     fingerprint="$(openssl x509 -in "${ETC_DIR}/ca.crt" -noout -fingerprint -sha256 | cut -d= -f2)"
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         if [[ "${SERVER_EXPLICIT}" -eq 1 ]]; then
             server_label="${SERVER} (from --server)"
         else
             server_label="${SERVER} (auto-detected egress IP)"
         fi
+        if [[ "${PROXY_PROTOCOL}" == "vless-reality" ]]; then
+            protocol_label="VLESS + REALITY + Vision"
+        else
+            protocol_label="Shadowsocks 2022 (2022-blake3-aes-256-gcm)"
+        fi
+        mode_completion_zh="完整模式安装完成。"
+        advanced_mode && mode_completion_zh="进阶模式安装完成。"
         cat <<EOF
 
-${PROJECT} is ready in full mode.
-${PROJECT} 完整模式安装完成。
+${PROJECT} is ready in ${MODE} mode.
+${PROJECT} ${mode_completion_zh}
 
 Random location city / 随机定位城市: ${city}
-REALITY SNI / REALITY 伪装域名: ${REALITY_SNI}
+Proxy protocol / 代理协议: ${protocol_label}
 Server address in URI / 节点链接服务器地址: ${server_label}
-VLESS URI / VLESS 节点链接:
+Proxy URI / 代理节点链接:
 $(cat "${ETC_DIR}/node-uri.txt")
 
 iOS CA profile / iOS CA 描述文件: ${ETC_DIR}/Home-Location-Endpoint-CA.mobileconfig
@@ -1079,6 +1450,17 @@ CA SHA-256 / CA SHA-256 指纹: ${fingerprint}
 Temporary phone download starts automatically below.
 下方将自动启动手机临时下载。
 EOF
+        if [[ "${PROXY_PROTOCOL}" == "vless-reality" ]]; then
+            printf 'REALITY SNI / REALITY 伪装域名: %s\n' "${REALITY_SNI}"
+        fi
+        if advanced_mode; then
+            cat <<EOF
+Telegram location controller / Telegram 定位控制: active
+Authorized chat / 授权 Chat ID: ${TELEGRAM_CHAT_ID}
+Open the bot and send /menu to switch, add, delete, or restore locations.
+打开 Bot 并发送 /menu，即可切换、增加、删除地点或恢复真实定位。
+EOF
+        fi
         if [[ "${SERVER_EXPLICIT}" -eq 0 ]]; then
             cat <<EOF
 
@@ -1093,19 +1475,19 @@ EOF
         cat <<EOF
 
 If this landing server is behind one or more relays, use Realm pure TCP forwarding.
-Keep UUID, flow, SNI, REALITY public key, and short ID unchanged at every relay.
+Keep the entry port and all client credentials unchanged at every relay.
 如果落地机前面还有一级或多级中转，请使用 Realm 纯 TCP 转发。
-每一级中转都必须保持 UUID、flow、SNI、REALITY 公钥和 short ID 不变。
+每一级中转都必须保持入口端口和客户端凭据不变。
 
 Next / 下一步:
   1. Copy the profile to the iPhone, install it, then enable full trust for this CA.
      将描述文件传到 iPhone 安装，然后为该 CA 开启完全信任。
-  2. Import the VLESS URI into a full-tunnel client and connect through this endpoint.
-     将 VLESS 节点链接导入全局代理客户端，并通过本节点连接。
+  2. Import the proxy URI into a full-tunnel client and connect through this endpoint.
+     将代理节点链接导入全局代理客户端，并通过本节点连接。
   3. Run 'sudo hle verify' and 'sudo hle status' for local checks.
      运行 'sudo hle verify' 和 'sudo hle status' 检查本机状态。
-  4. Run 'sudo hle relocate' whenever you want another random point in the same IP city.
-     需要在同一出口城市内更换随机坐标时，运行 'sudo hle relocate'。
+  4. Use Telegram /menu in advanced mode; beginner mode can use 'sudo hle relocate'.
+     进阶模式使用 Telegram /menu；新手模式可运行 'sudo hle relocate'。
   5. Run 'sudo hle pause' to return real Apple responses; use 'sudo hle resume' to rewrite again.
      需要暂停定位修改时运行 'sudo hle pause'；再次运行 'sudo hle resume' 恢复改写。
 
@@ -1114,6 +1496,12 @@ Remove everything later with: sudo hle uninstall
 SSH was not changed. If a provider firewall exists, allow TCP ${PORT} there.
 安装器未修改 SSH。如服务商另有云防火墙，请在其中放行 TCP ${PORT}。
 EOF
+        if [[ "${PROXY_PROTOCOL}" == "ss2022" ]]; then
+            cat <<EOF
+SS2022 native UDP also requires UDP ${PORT} in the provider firewall.
+SS2022 原生 UDP 还需要在服务商防火墙中放行 UDP ${PORT}。
+EOF
+        fi
         return
     fi
     cat <<EOF
@@ -1212,9 +1600,10 @@ main() {
     check_existing_installation
     check_resources
     install_packages
+    select_advanced_options
     validate_explicit_overrides
     begin_transaction
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         detect_listen_address
         check_port_available
         install_xray
@@ -1222,11 +1611,14 @@ main() {
     fi
     create_accounts_and_directories
     select_random_location
+    prepare_advanced_control
     generate_certificates
     render_ca_profile
-    if [[ "${MODE}" == "full" ]]; then
-        validate_fixed_reality_target
-        generate_fallback_limits
+    if proxy_mode; then
+        if [[ "${PROXY_PROTOCOL}" == "vless-reality" ]]; then
+            validate_fixed_reality_target
+            generate_fallback_limits
+        fi
         load_or_create_credentials
         render_and_validate
     fi
@@ -1235,7 +1627,7 @@ main() {
     install_services
     /usr/local/sbin/hle verify
     TRANSACTION_COMMITTED=1
-    if [[ "${MODE}" == "full" ]]; then
+    if proxy_mode; then
         apply_baseline
         open_active_firewall
     fi

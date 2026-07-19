@@ -9,6 +9,7 @@ User=home-location
 Group=home-location
 UMask=0077
 Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/home-location-endpoint/runtime.env
 ExecStart=/usr/bin/python3 /opt/home-location-endpoint/interceptor.py
 Restart=on-failure
 RestartSec=2s

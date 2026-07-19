@@ -13,11 +13,21 @@ reset_mode_state() {
     EXISTING_MODE=""
     MODE_EXPLICIT=0
     PROXY_OPTION_EXPLICIT=0
+    PROTOCOL_EXPLICIT=0
+    PROXY_PROTOCOL="vless-reality"
     SERVER_EXPLICIT=0
     CREATED_HOME_USER=0
     CREATED_HOME_GROUP=0
     CREATED_XRAY_USER=0
     CREATED_XRAY_GROUP=0
+    CREATED_BOT_USER=0
+    CREATED_BOT_GROUP=0
+    RUN_CREATED_HOME_USER=0
+    RUN_CREATED_HOME_GROUP=0
+    RUN_CREATED_XRAY_USER=0
+    RUN_CREATED_XRAY_GROUP=0
+    RUN_CREATED_BOT_USER=0
+    RUN_CREATED_BOT_GROUP=0
 }
 
 reset_mode_state
@@ -29,6 +39,23 @@ reset_mode_state
 MODE="modifier-only"
 select_install_mode
 [[ "${MODE}" == "modifier-only" ]]
+
+reset_mode_state
+MODE="advanced"
+PROXY_PROTOCOL="ss2022"
+select_install_mode
+[[ "${MODE}" == "advanced" ]]
+[[ "${PROXY_PROTOCOL}" == "ss2022" ]]
+
+if (
+    reset_mode_state
+    MODE="full"
+    PROXY_PROTOCOL="ss2022"
+    select_install_mode >/dev/null 2>&1
+); then
+    printf 'beginner mode accepted SS2022\n' >&2
+    exit 1
+fi
 
 if (
     parse_args --reality-sni example.com >/dev/null 2>&1
@@ -158,10 +185,15 @@ fi
     useradd() { return 0; }
     created_user=0
     created_group=0
+    run_created_user=0
+    run_created_group=0
     ensure_system_account \
-        home-location home-location created_user created_group
+        home-location home-location created_user created_group \
+        run_created_user run_created_group
     [[ "${created_user}" -eq 1 ]]
     [[ "${created_group}" -eq 1 ]]
+    [[ "${run_created_user}" -eq 1 ]]
+    [[ "${run_created_group}" -eq 1 ]]
 )
 
 printf 'installer mode tests: OK\n'

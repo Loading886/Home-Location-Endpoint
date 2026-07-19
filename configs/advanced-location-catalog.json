@@ -1,0 +1,67 @@
+{
+  "presets": {
+    "los_angeles": {
+      "menu_label": "🇺🇸 Los Angeles",
+      "address": "Central Los Angeles, California, USA",
+      "center_lat": 34.052235,
+      "center_lon": -118.243683,
+      "random_radius_m": 4000
+    },
+    "tokyo": {
+      "menu_label": "🇯🇵 Tokyo",
+      "address": "Central Tokyo, Japan",
+      "center_lat": 35.681236,
+      "center_lon": 139.767125,
+      "random_radius_m": 3500
+    },
+    "hong_kong": {
+      "menu_label": "🇭🇰 Hong Kong",
+      "address": "Central Kowloon, Hong Kong",
+      "center_lat": 22.319304,
+      "center_lon": 114.169361,
+      "random_radius_m": 1200
+    },
+    "singapore": {
+      "menu_label": "🇸🇬 Singapore",
+      "address": "Central Singapore",
+      "center_lat": 1.304833,
+      "center_lon": 103.831833,
+      "random_radius_m": 2200
+    },
+    "kuala_lumpur": {
+      "menu_label": "🇲🇾 Kuala Lumpur",
+      "address": "Central Kuala Lumpur, Malaysia",
+      "center_lat": 3.139003,
+      "center_lon": 101.686855,
+      "random_radius_m": 2200
+    },
+    "paris": {
+      "menu_label": "🇫🇷 Paris",
+      "address": "Central Paris, France",
+      "center_lat": 48.856613,
+      "center_lon": 2.352222,
+      "random_radius_m": 2200
+    },
+    "frankfurt": {
+      "menu_label": "🇩🇪 Frankfurt",
+      "address": "Central Frankfurt am Main, Germany",
+      "center_lat": 50.110924,
+      "center_lon": 8.682127,
+      "random_radius_m": 2200
+    },
+    "reykjavik": {
+      "menu_label": "🇮🇸 Reykjavík",
+      "address": "Central Reykjavík, Iceland",
+      "center_lat": 64.146582,
+      "center_lon": -21.942635,
+      "random_radius_m": 1400
+    },
+    "kunlun_station": {
+      "menu_label": "🇦🇶 Kunlun Station",
+      "address": "Kunlun Station, Antarctica",
+      "center_lat": -80.4167,
+      "center_lon": 77.1167,
+      "random_radius_m": 300
+    }
+  }
+}

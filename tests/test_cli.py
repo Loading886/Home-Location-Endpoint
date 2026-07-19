@@ -15,6 +15,16 @@ from home_location_endpoint import cli, render
 
 
 class CliTests(unittest.TestCase):
+    def test_bot_heartbeat_must_exist_and_be_fresh(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            health = Path(temporary) / "health"
+            with mock.patch.object(cli, "BOT_HEALTH_FILE", health):
+                self.assertFalse(cli.bot_health_is_fresh())
+                health.write_text("%.6f\n" % time.time(), encoding="ascii")
+                self.assertTrue(cli.bot_health_is_fresh())
+                health.write_text("%.6f\n" % (time.time() - 181), encoding="ascii")
+                self.assertFalse(cli.bot_health_is_fresh())
+
     def test_pause_and_resume_are_registered_commands(self):
         with mock.patch("sys.argv", ["hle", "pause"]):
             pause = cli.parse_args()
