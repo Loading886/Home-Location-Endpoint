@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Register a Telegram command menu beside the message field for one-tap access
+  to the location controls and current status.
+- Match the Apple Relay controller's semantic button palette: blue for ordinary
+  choices, green for the current/positive action, and red for destructive
+  actions. The selected color follows location and pause-state changes.
+- Display all ten built-in location entries with concise Chinese names while
+  retaining English addresses and compatibility with existing English-labeled
+  location databases.
+
 ## 0.2.2 - 2026-07-19
 
 - Stabilize Antarctic and other sparse-coverage targets by supplementing only

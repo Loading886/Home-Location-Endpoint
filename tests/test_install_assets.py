@@ -194,6 +194,14 @@ class InstallAssetTests(unittest.TestCase):
             "kuala_lumpur", "paris", "frankfurt", "reykjavik",
             "kunlun_station",
         })
+        self.assertEqual(
+            [entry["menu_label"] for entry in catalog["presets"].values()],
+            [
+                "🇺🇸 洛杉矶", "🇯🇵 东京", "🇭🇰 香港", "🇸🇬 新加坡",
+                "🇲🇾 吉隆坡", "🇫🇷 巴黎", "🇩🇪 法兰克福",
+                "🇮🇸 雷克雅未克", "🇦🇶 南极昆仑站",
+            ],
+        )
 
 
 if __name__ == "__main__":

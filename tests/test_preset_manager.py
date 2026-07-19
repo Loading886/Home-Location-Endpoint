@@ -56,6 +56,7 @@ class PresetManagerTests(unittest.TestCase):
         self.assertNotEqual(
             first["presets"]["tokyo"]["lat"], second["presets"]["tokyo"]["lat"]
         )
+        self.assertEqual(first["presets"]["ip_city"]["menu_label"], "🌐 出口城市")
         for key, definition in catalog["presets"].items():
             point = first["presets"][key]
             distance = self.distance_m(

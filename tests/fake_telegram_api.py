@@ -119,6 +119,7 @@ class Handler(BaseHTTPRequestHandler):
             result = {"url": "", "pending_update_count": 0}
         elif method in {
             "deleteWebhook", "sendMessage", "answerCallbackQuery",
+            "setMyCommands", "setChatMenuButton",
         }:
             result = True
         else:

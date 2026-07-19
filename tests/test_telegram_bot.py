@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -91,9 +92,13 @@ class TelegramBotTests(unittest.TestCase):
             def __init__(self, first_result):
                 self.first_result = first_result
                 self.polls = 0
+                self.methods = []
 
             def call(self, method, payload=None, timeout=35):
-                if method == "deleteWebhook":
+                self.methods.append(method)
+                if method in {
+                    "deleteWebhook", "setMyCommands", "setChatMenuButton",
+                }:
                     return True
                 if method != "getUpdates":
                     raise AssertionError(method)
@@ -117,6 +122,67 @@ class TelegramBotTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 bot.run()
             heartbeat.assert_called_once_with()
+        self.assertEqual(
+            bot.api.methods[:3],
+            ["deleteWebhook", "setMyCommands", "setChatMenuButton"],
+        )
+
+    def test_setup_ui_registers_the_input_side_command_menu(self):
+        bot = telegram_bot.LocationBot(TOKEN, CHAT_ID)
+        bot.api = FakeTelegram()
+        bot.setup_ui()
+
+        commands = bot.api.calls[0]
+        menu = bot.api.calls[1]
+        self.assertEqual(commands[0], "setMyCommands")
+        self.assertEqual(
+            [item["command"] for item in json.loads(commands[1]["commands"])],
+            ["menu", "status"],
+        )
+        self.assertEqual(menu[0], "setChatMenuButton")
+        self.assertEqual(menu[1]["chat_id"], CHAT_ID)
+        self.assertEqual(json.loads(menu[1]["menu_button"]), {"type": "commands"})
+
+    def test_menu_uses_chinese_builtin_labels_and_semantic_button_colors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            location = root / "location.json"
+            modifier = root / "modifier.state"
+            preset_manager.atomic_write(location, self.make_config())
+            modifier.write_text("active\n", encoding="ascii")
+
+            with (
+                mock.patch.object(telegram_bot, "LOCATION_FILE", location),
+                mock.patch.object(telegram_bot, "MODIFIER_FILE", modifier),
+            ):
+                bot = telegram_bot.LocationBot(TOKEN, CHAT_ID)
+                bot.api = FakeTelegram()
+                bot.show_menu()
+                markup = json.loads(bot.api.calls[-1][1]["reply_markup"])
+                buttons = {
+                    button["callback_data"]: button
+                    for row in markup["inline_keyboard"]
+                    for button in row
+                }
+
+                self.assertEqual(buttons["loc:set:ip_city"]["text"], "✓ 🌐 出口城市")
+                self.assertEqual(buttons["loc:set:ip_city"]["style"], "success")
+                self.assertEqual(buttons["loc:set:tokyo"]["text"], "🇯🇵 东京")
+                self.assertEqual(buttons["loc:set:tokyo"]["style"], "primary")
+                self.assertEqual(buttons["loc:restore"]["style"], "primary")
+                self.assertEqual(buttons["loc:add"]["style"], "success")
+                self.assertEqual(buttons["loc:delete-menu"]["style"], "danger")
+
+                modifier.write_text("paused\n", encoding="ascii")
+                bot.show_menu()
+                paused_markup = json.loads(bot.api.calls[-1][1]["reply_markup"])
+                paused_buttons = {
+                    button["callback_data"]: button
+                    for row in paused_markup["inline_keyboard"]
+                    for button in row
+                }
+                self.assertEqual(paused_buttons["loc:restore"]["style"], "success")
+                self.assertEqual(paused_buttons["loc:set:ip_city"]["style"], "primary")
 
     def test_authorized_callbacks_switch_and_restore_atomically(self):
         with tempfile.TemporaryDirectory() as temporary:

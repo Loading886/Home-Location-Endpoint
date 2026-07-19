@@ -151,7 +151,7 @@ def build_advanced_config(base_config, catalog, rng=None):
     output["managed_by"] = "home-location-telegram-bot"
     source_city = str(output.get("source", {}).get("city") or "Egress city")
     source = output["presets"][output["active"]]
-    source["menu_label"] = "🌐 %s" % source_city
+    source["menu_label"] = "🌐 出口城市"
     source["address"] = "%s (automatic egress-city point)" % source_city
     for key, entry in entries.items():
         if not KEY_RE.fullmatch(str(key)) or key in output["presets"]:

@@ -51,6 +51,22 @@ HEALTH_FILE = Path(os.environ.get(
 ))
 MAX_RESPONSE = 2 * 1024 * 1024
 SESSION_TTL = 900
+BOT_COMMANDS = [
+    {"command": "menu", "description": "打开定位菜单"},
+    {"command": "status", "description": "查看当前定位"},
+]
+BUILTIN_MENU_LABELS = {
+    "ip_city": "🌐 出口城市",
+    "los_angeles": "🇺🇸 洛杉矶",
+    "tokyo": "🇯🇵 东京",
+    "hong_kong": "🇭🇰 香港",
+    "singapore": "🇸🇬 新加坡",
+    "kuala_lumpur": "🇲🇾 吉隆坡",
+    "paris": "🇫🇷 巴黎",
+    "frankfurt": "🇩🇪 法兰克福",
+    "reykjavik": "🇮🇸 雷克雅未克",
+    "kunlun_station": "🇦🇶 南极昆仑站",
+}
 
 
 class BotError(RuntimeError):
@@ -149,8 +165,35 @@ def validate_credentials(token, chat_id):
     print("Telegram bot verified: @%s" % username.lstrip("@"))
 
 
+def _button_style(button):
+    """Use the same blue/green/red semantics as the Apple Relay bot."""
+    text = str(button.get("text") or "").strip()
+    callback = str(button.get("callback_data") or "")
+    if text.startswith(("✓", "✅")):
+        return "success"
+    if callback == "loc:delete-menu" or callback.startswith((
+        "loc:delete:", "loc:delete-confirm:", "loc:cancel",
+    )):
+        return "danger"
+    if callback in {"loc:add", "loc:add-confirm"}:
+        return "success"
+    return "primary"
+
+
 def keyboard(rows):
-    return json.dumps({"inline_keyboard": rows}, ensure_ascii=False, separators=(",", ":"))
+    styled_rows = []
+    for row in rows:
+        styled_row = []
+        for button in row:
+            styled_button = dict(button)
+            styled_button.setdefault("style", _button_style(styled_button))
+            styled_row.append(styled_button)
+        styled_rows.append(styled_row)
+    return json.dumps(
+        {"inline_keyboard": styled_rows},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 class LocationBot:
@@ -200,9 +243,21 @@ class LocationBot:
         self.api.call("answerCallbackQuery", payload)
 
     @staticmethod
-    def _label(entry):
-        value = str(entry.get("menu_label") or entry.get("label") or "Location")
+    def _label(entry, key=None):
+        value = BUILTIN_MENU_LABELS.get(
+            key,
+            str(entry.get("menu_label") or entry.get("label") or "Location"),
+        )
         return value if len(value) <= 40 else value[:39] + "…"
+
+    def setup_ui(self):
+        self.api.call("setMyCommands", {
+            "commands": json.dumps(BOT_COMMANDS, ensure_ascii=False),
+        })
+        self.api.call("setChatMenuButton", {
+            "chat_id": self.chat_id,
+            "menu_button": json.dumps({"type": "commands"}),
+        })
 
     def show_menu(self, notice=None):
         data = presets.load(LOCATION_FILE)
@@ -210,7 +265,7 @@ class LocationBot:
         rows = []
         buttons = []
         for key, entry in data["presets"].items():
-            label = self._label(entry)
+            label = self._label(entry, key)
             if state == "active" and key == data["active"]:
                 label = "✓ " + label
             buttons.append({"text": label, "callback_data": "loc:set:%s" % key})
@@ -222,15 +277,16 @@ class LocationBot:
             {"text": "➖ 删除地点", "callback_data": "loc:delete-menu"},
         ])
         current = data["presets"][data["active"]]
+        current_label = self._label(current, data["active"])
         message = []
         if notice:
             message.append(notice)
         message.append("📍 Home-Location-Endpoint 定位控制")
         if state == "paused":
             message.append("当前：🌍 真实定位（位置改写已暂停）")
-            message.append("保留地点：%s" % self._label(current))
+            message.append("保留地点：%s" % current_label)
         else:
-            message.append("当前：%s" % self._label(current))
+            message.append("当前：%s" % current_label)
             message.append("地址：%s" % current.get("address", "未记录"))
         message.append("选择城市立即生效，不需要重启服务。")
         self.send("\n\n".join(message), rows)
@@ -239,7 +295,10 @@ class LocationBot:
         data = presets.load(LOCATION_FILE)
         rows = []
         buttons = [
-            {"text": "🗑 " + self._label(entry), "callback_data": "loc:delete:%s" % key}
+            {
+                "text": "🗑 " + self._label(entry, key),
+                "callback_data": "loc:delete:%s" % key,
+            }
             for key, entry in data["presets"].items()
             if key != data["active"]
         ]
@@ -314,7 +373,7 @@ class LocationBot:
             with self.locked():
                 entry, _saved = presets.set_active(LOCATION_FILE, BACKUP_DIR, key)
                 presets.write_modifier_state(MODIFIER_FILE, "active")
-            self.show_menu("已切换到 %s。" % self._label(entry))
+            self.show_menu("已切换到 %s。" % self._label(entry, key))
         elif data.startswith("loc:delete:"):
             key = data[11:]
             current = presets.load(LOCATION_FILE)
@@ -322,7 +381,7 @@ class LocationBot:
             if entry is None or key == current["active"]:
                 self.show_menu("该地点不存在或仍是当前地点。")
                 return
-            self.send("确认删除 %s？" % self._label(entry), [[
+            self.send("确认删除 %s？" % self._label(entry, key), [[
                 {"text": "🗑 确认删除", "callback_data": "loc:delete-confirm:%s" % key},
                 {"text": "✖️ 取消", "callback_data": "loc:menu"},
             ]])
@@ -330,7 +389,7 @@ class LocationBot:
             key = data[19:]
             with self.locked():
                 entry, _saved = presets.delete(LOCATION_FILE, BACKUP_DIR, key)
-            self.show_menu("已删除 %s。" % self._label(entry))
+            self.show_menu("已删除 %s。" % self._label(entry, key))
         elif data == "loc:add-confirm":
             if not self.session or self.session.get("step") != "confirm":
                 self.show_menu("增加地点会话已过期。")
@@ -345,7 +404,7 @@ class LocationBot:
                     self.session["lon"],
                 )
             self.session = None
-            self.show_menu("已增加 %s。" % self._label(saved["presets"][key]))
+            self.show_menu("已增加 %s。" % self._label(saved["presets"][key], key))
 
     def process_update(self, update):
         callback = update.get("callback_query")
@@ -367,6 +426,7 @@ class LocationBot:
 
     def run(self):
         self.api.call("deleteWebhook", {"drop_pending_updates": "false"})
+        self.setup_ui()
         while True:
             try:
                 updates = self.api.call(
