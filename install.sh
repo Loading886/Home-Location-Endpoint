@@ -1174,14 +1174,29 @@ download or 100 minutes. Press Ctrl+C to close it without affecting the installa
 正在启动一次性 CA 描述文件下载。首次成功下载或 100 分钟后自动关闭；
 按 Ctrl+C 可提前关闭，不会影响已经完成的安装。
 EOF
-    if ! serve_profile_download; then
-        cat >&2 <<'EOF'
+    local handoff_status
+    if serve_profile_download; then
+        return 0
+    else
+        handoff_status=$?
+    fi
+
+    case "${handoff_status}" in
+        130|143)
+            cat <<'EOF'
+Temporary CA download closed by the operator. The endpoint remains installed and active.
+CA 临时下载已由用户关闭；节点仍已完成安装并保持运行。
+EOF
+            ;;
+        *)
+            cat >&2 <<'EOF'
 WARNING: the endpoint installation is complete, but the temporary CA download
 could not start. Run it again later with: sudo hle profile serve
 警告：节点安装已经完成，但 CA 临时下载未能启动。请稍后重新运行：
 sudo hle profile serve
 EOF
-    fi
+            ;;
+    esac
 }
 
 main() {

@@ -126,7 +126,9 @@ class InstallAssetTests(unittest.TestCase):
         self.assertLess(commit, result)
         self.assertLess(result, handoff)
         self.assertIn("if ! interactive_output", installer)
-        self.assertIn("if ! serve_profile_download", installer)
+        self.assertIn("if serve_profile_download", installer)
+        self.assertIn("130|143", installer)
+        self.assertIn("CA 临时下载已由用户关闭", installer)
 
     def test_installer_preserves_a_valid_modifier_state(self):
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")

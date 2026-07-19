@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.10 - 2026-07-18
+
+- Distinguish an operator closing the automatic CA profile handoff from a real
+  startup failure. Ctrl+C/SIGTERM now reports that the endpoint remains active
+  instead of printing the misleading "could not start" warning.
+- Add reusable Windows and Linux VLESS + REALITY end-to-end checks. They verify
+  the official Xray release digest, exercise a real SOCKS client connection,
+  confirm the observed exit IP, and avoid persisting the node URI.
+
 ## 0.1.9 - 2026-07-18
 
 - Add persistent `hle pause` and `hle resume` controls. Paused endpoints keep
