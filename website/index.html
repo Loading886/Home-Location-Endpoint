@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home-Location-Endpoint · Apple 网络定位修改端点</title>
-<meta name="description" content="把一台 Linux 落地机部署为 Apple 网络定位修改端点。提供新手完整安装、Telegram 多地点进阶控制和高手自定义对接三种模式。">
-<link rel="preload" href="/assets/style.css?v=4" as="style">
-<link rel="stylesheet" href="/assets/style.css?v=4">
+<meta name="description" content="把一台 Linux 落地机部署为 Apple 网络定位修改端点。推荐使用带 Telegram 多地点控制的进阶模式，也提供新手完整安装和高手自定义对接。">
+<link rel="preload" href="/assets/style.css?v=5" as="style">
+<link rel="stylesheet" href="/assets/style.css?v=5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -34,7 +34,7 @@
   <div class="container">
     <span class="eyebrow">◆ 开源 · MIT · 自托管 · v0.2.2</span>
     <h1>一键脚本<br>更改iPhone手机定位</h1>
-    <p class="lead">选择适合你的模式，一步步把自己的落地机接入 iPhone。新手直接安装完整节点，进阶用户用 Telegram 随时切换地点，高手可以接入已有代理核心。</p>
+    <p class="lead">推荐使用进阶模式：完整安装代理端点，并用 Telegram 随时切换地点、增删地点或恢复真实定位。也可选择简化的新手模式，或由高手接入已有代理核心。</p>
 
     <div class="path-hero">
       <a class="path-big path-big-new" href="/beginner.html">
@@ -74,7 +74,8 @@
         <span class="go">看图文教程 →</span>
       </a>
 
-      <a class="path-big path-big-advanced" href="/telegram.html">
+      <a class="path-big path-big-advanced path-recommended" href="/telegram.html">
+        <span class="recommend-star" aria-label="推荐">★ 推荐</span>
         <span class="illus">
           <svg viewBox="0 0 360 180" role="img" aria-label="进阶模式插画">
             <circle cx="60" cy="52" r="42" fill="var(--warn)" opacity=".09"/>
@@ -126,7 +127,7 @@
         </span>
         <span class="ptag">高手 · 技术对接</span>
         <h3>我是高手 ⚙</h3>
-        <p>仅定位模式：把拦截器接入你已有的 Xray / 代理核心，只讲关键对接点。</p>
+        <p>仅定位模式：把定位修改器接入你已有的代理核心，只讲关键对接点。</p>
         <span class="go">看技术对接 →</span>
       </a>
     </div>
@@ -166,14 +167,14 @@
         <line x1="122" y1="156" x2="236" y2="156" stroke="var(--brand)" stroke-width="2.4" marker-end="url(#ahb)"/>
         <g transform="translate(179,120)">
           <rect x="-52" y="0" width="104" height="26" rx="7" fill="var(--note-bg)" stroke="var(--brand)"/>
-          <text x="0" y="17" text-anchor="middle" font-size="11.5" fill="var(--brand)" font-weight="800">🔒 REALITY</text>
-          <text x="0" y="42" text-anchor="middle" font-size="10.5" fill="var(--text-mut)">VLESS · Vision</text>
+          <text x="0" y="17" text-anchor="middle" font-size="11.5" fill="var(--brand)" font-weight="800">🔒 加密隧道</text>
+          <text x="0" y="42" text-anchor="middle" font-size="10.5" fill="var(--text-mut)">传输协议</text>
         </g>
         <g>
           <rect x="244" y="104" width="150" height="104" rx="14" fill="var(--surface)" stroke="var(--brand)" stroke-width="1.6"/>
           <text x="319" y="140" text-anchor="middle" font-size="22">🖥️</text>
           <text x="319" y="166" text-anchor="middle" font-size="13.5" fill="var(--text)" font-weight="800">落地机</text>
-          <text x="319" y="185" text-anchor="middle" font-size="11" fill="var(--text-mut)">Xray 分流 · 拦截器</text>
+          <text x="319" y="185" text-anchor="middle" font-size="11" fill="var(--text-mut)">流量分流 · 定位修改器</text>
           <text x="319" y="201" text-anchor="middle" font-size="11" fill="var(--text-mut)">出口 IP = 目标城市</text>
         </g>
         <path d="M394 134 C 468 134, 468 74, 556 74" fill="none" stroke="var(--text-mut)" stroke-width="2" marker-end="url(#ah)"/>
@@ -198,7 +199,7 @@
       <figcaption>端到端数据面：加密隧道到落地机，普通流量直连，唯有 Apple 网络定位被限定改写。</figcaption>
     </figure>
     <div class="steps">
-      <div class="step"><h3>手机全隧道连接落地机</h3><div class="step-body"><p>客户端用 VLESS + REALITY + Vision 连到落地机，开启全局 TUN/VPN，让系统级流量（含定位服务）都进隧道。</p></div></div>
+      <div class="step"><h3>手机全隧道连接落地机</h3><div class="step-body"><p>客户端使用安装器生成的传输协议连接落地机，开启全局 TUN/VPN，让系统级流量（含定位服务）都进隧道。</p></div></div>
       <div class="step"><h3>落地机识别定位请求</h3><div class="step-body"><p>只有 Apple 网络定位请求会进入定位修改器，普通网页、App 和其它网络流量仍从落地机正常访问互联网。</p></div></div>
       <div class="step"><h3>把定位移到目标城市</h3><div class="step-body"><p>定位修改器把结果调整到落地机出口 IP 所在城市内的随机点，再把结果返回手机。</p></div></div>
       <div class="step"><h3>保持自然稳定</h3><div class="step-body"><p>定位会在设定点附近做轻微、平滑的变化；需要换一个点时可以重新随机选择，无需重装手机配置。</p></div></div>
@@ -214,23 +215,24 @@
     <p class="sec-sub">安装器交互式询问；也可用参数无人值守安装。首次装好后模式被锁定，不支持原地互转。</p>
     <div class="grid grid-3">
       <div class="card path-card">
-        <span class="tag tag-new">新手推荐</span>
+        <span class="tag tag-new">新手入门</span>
         <h3>完整代理端点</h3>
-        <p style="color:var(--text-soft)">一条命令搞定：自动装好 Xray，生成 VLESS + REALITY + Vision 节点，并接入定位修改器。你只要把节点导入客户端、把描述文件装进手机。</p>
+        <p style="color:var(--text-soft)">一条命令装好代理端点并接入定位修改器。你只要把生成的节点导入兼容客户端，再把描述文件装进手机。</p>
         <ul class="lead-list">
-          <li>统一管理并现场校验 REALITY SNI/target</li>
-          <li>输出一行可直接导入的 VLESS 链接</li>
+          <li>统一管理并现场校验传输参数</li>
+          <li>输出一行可直接导入的节点链接</li>
           <li>支持 amd64 / arm64</li>
         </ul>
         <a class="btn btn-primary" href="/beginner.html">看新手图文教程 →</a>
       </div>
-      <div class="card path-card">
-        <span class="tag tag-new">进阶控制</span>
+      <div class="card path-card path-card-recommended">
+        <span class="recommend-star recommend-star-card" aria-label="推荐">★ 推荐</span>
+        <span class="tag tag-recommended">进阶控制</span>
         <h3>代理端点 + Telegram</h3>
         <p style="color:var(--text-soft)">完整代理端点再加一个只授权单个 Chat ID 的定位菜单，可切换、增加、删除地点，也能一键恢复真实定位。</p>
         <ul class="lead-list">
           <li>预置九个城市/区域和出口城市随机点</li>
-          <li>可选 VLESS + REALITY 或 SS2022</li>
+          <li>可按客户端兼容性选择传输协议</li>
           <li>低权限 Bot，不监听公网端口</li>
         </ul>
         <a class="btn btn-primary" href="/telegram.html">看完整进阶教程 →</a>
@@ -238,10 +240,10 @@
       <div class="card path-card">
         <span class="tag tag-pro">高级</span>
         <h3>仅定位修改器</h3>
-        <p style="color:var(--text-soft)">不安装代理核心。只部署回环拦截器、证书与接线示例，由你把自己的代理入站接到定位修改器，与现有 Xray / 其他核心共存。</p>
+        <p style="color:var(--text-soft)">不安装代理核心。只部署回环定位修改器、证书与接线示例，由你把自己的代理入站接入，与现有服务共存。</p>
         <ul class="lead-list">
           <li>不碰你已有的端口、防火墙与 TCP 调优</li>
-          <li>提供 Xray sniffing + 路由片段</li>
+          <li>提供可移植的分流要求与接线示例</li>
           <li>不限 CPU 架构</li>
         </ul>
         <a class="btn btn-ghost" href="/advanced.html">看高手对接 →</a>
@@ -256,12 +258,12 @@
     <h2>为什么用它</h2>
     <p class="sec-sub">工程上尽量克制、可审计、可回滚。</p>
     <div class="grid grid-3">
-      <div class="card"><div class="ic">🎯</div><h4>作用域极窄</h4><p style="color:var(--text-soft)">只路由 Apple 定位域名到拦截器；叶证书 SAN、Xray 路由层层收窄，普通流量与其它站点不受影响。</p></div>
+      <div class="card"><div class="ic">🎯</div><h4>作用域极窄</h4><p style="color:var(--text-soft)">只路由 Apple 定位域名到定位修改器；证书与分流规则层层收窄，普通流量与其它站点不受影响。</p></div>
       <div class="card"><div class="ic">🗺️</div><h4>真实城市随机点</h4><p style="color:var(--text-soft)">按出口 IP 识别城市，在 OpenStreetMap 行政边界内随机取点；取不到边界时在 IP 中心 3km 内回退并明确标记。</p></div>
       <div class="card"><div class="ic">🔐</div><h4>私钥即用即删</h4><p style="color:var(--text-soft)">每台落地机生成独立 CA，只签一张叶证书后立即删除 CA 私钥；安装输出 CA 的 SHA-256 供你核对。</p></div>
       <div class="card"><div class="ic">↩️</div><h4>事务化安装</h4><p style="color:var(--text-soft)">安装/升级用互斥锁、预检查与文件级事务；服务或完整性检查失败会恢复到先前受管状态。</p></div>
       <div class="card"><div class="ic">⏸️</div><h4>随时暂停</h4><p style="color:var(--text-soft)"><span class="code-inline">hle pause</span> 暂停坐标改写并返回 Apple 原始定位；<span class="code-inline">hle resume</span> 即时恢复，代理与普通流量不中断。</p></div>
-      <div class="card"><div class="ic">🧩</div><h4>统一 REALITY 配置</h4><p style="color:var(--text-soft)">由安装器统一管理 target，并现场校验证书链、公网解析、TLS 1.3 与 HTTP/2，避免节点参数漂移。</p></div>
+      <div class="card"><div class="ic">🧩</div><h4>传输参数校验</h4><p style="color:var(--text-soft)">由安装器统一生成并现场校验所选协议需要的连接参数，避免节点配置与服务器状态不一致。</p></div>
       <div class="card"><div class="ic">📲</div><h4>自动交付描述文件</h4><p style="color:var(--text-soft)">交互式安装完成后自动启动一次性下载链接和二维码；成功下载一次或 100 分钟后自动关闭。</p></div>
       <div class="card"><div class="ic">🛡️</div><h4>不动 SSH / 防火墙</h4><p style="color:var(--text-soft)">安装器不改 SSH 端口/密钥/密码，也不会主动启用原本关闭的 UFW。</p></div>
       <div class="card"><div class="ic">🤖</div><h4>手机菜单控制</h4><p style="color:var(--text-soft)">进阶模式可在 Telegram 菜单里切换、增加或删除地点，恢复真实定位，并直接获取节点链接和 CA 描述文件。</p></div>
@@ -280,12 +282,12 @@
         <tr><td>CPU 架构</td><td>完整/进阶模式 amd64 / arm64；仅定位模式不限架构</td></tr>
         <tr><td>内存</td><td>建议 ≥ 384 MiB（低于会警告）</td></tr>
         <tr><td>磁盘</td><td>完整模式 ≥ 200 MiB，仅定位模式 ≥ 50 MiB 根分区可用</td></tr>
-        <tr><td>网络出口</td><td>能访问 GitHub、IP 定位服务、Nominatim、REALITY target 与 Apple 源站</td></tr>
-        <tr><td>客户端</td><td>支持 REALITY + Vision 的 iOS 客户端（如 Shadowrocket / Stash / sing-box 等），能开全局 TUN</td></tr>
+        <tr><td>网络出口</td><td>能访问 GitHub、IP 定位服务、Nominatim、所选传输协议依赖的目标与 Apple 源站</td></tr>
+        <tr><td>客户端</td><td>兼容安装器生成的节点协议，并能开启全局 TUN/VPN</td></tr>
       </table>
     </div>
     <div class="callout callout-tip"><span class="ico">✅</span>
-      <p>没有落地机？任何一台干净的上述系统 VPS 都可以。<strong>建议用一台专门的机器</strong>，不要装到还承载其它 Xray 配置的主机上（完整模式会拒绝）。</p>
+      <p>没有落地机？任何一台干净的上述系统 VPS 都可以。<strong>建议用一台专门的机器</strong>，不要装到还承载其它代理服务的主机上（完整模式会拒绝）。</p>
     </div>
   </div>
 </section>

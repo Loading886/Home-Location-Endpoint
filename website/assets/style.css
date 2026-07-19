@@ -155,6 +155,15 @@ code { font-family: var(--mono); font-size: .9em; }
   position: relative; overflow: hidden;
 }
 .path-big:hover { text-decoration: none; transform: translateY(-5px); box-shadow: var(--shadow-lg); }
+.path-recommended { padding-top: 20px; }
+.recommend-star {
+  position: absolute; top: 14px; right: 14px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 999px;
+  background: var(--warn); color: #271004; border: 1px solid color-mix(in srgb, var(--warn) 70%, #ffffff);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--warn) 24%, transparent);
+  font-size: .78rem; font-weight: 850; line-height: 1; letter-spacing: 0;
+}
 .path-big .illus { width: 100%; height: 144px; margin: -4px 0 8px; display: block; }
 .path-big .illus svg { width: 100%; height: 100%; display: block; }
 .path-big-new { border-color: color-mix(in srgb, var(--brand) 42%, var(--border-strong));
@@ -207,7 +216,11 @@ hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
 .path-card .tag { align-self:flex-start; font-size:.78rem; font-weight:800; letter-spacing:0; text-transform:uppercase;
   padding:4px 10px; border-radius:999px; margin-bottom: 12px; }
 .tag-new { background: var(--tip-bg); color: var(--accent); }
+.tag-recommended { background: var(--warn-bg); color: var(--warn); }
 .tag-pro { background: var(--note-bg); color: var(--brand); }
+.path-card-recommended { border-color: color-mix(in srgb, var(--warn) 48%, var(--border-strong)); padding-top: 22px; }
+.recommend-star-card { top: 16px; right: 16px; }
+.path-card-recommended .tag { margin-right: 84px; }
 .path-card ul { margin: 10px 0 20px; color: var(--text-soft); }
 .path-card .btn { margin-top: auto; align-self:flex-start; }
 

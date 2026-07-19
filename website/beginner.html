@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>新手图文教程 · Home-Location-Endpoint</title>
 <meta name="description" content="零基础也能跟着做：一条命令装好完整代理端点，把描述文件装进 iPhone、开启完全信任、导入节点、验证定位改变。每一步配图。">
-<link rel="stylesheet" href="/assets/style.css?v=4">
+<link rel="stylesheet" href="/assets/style.css?v=5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -32,7 +32,7 @@
   <div class="container">
     <span class="eyebrow">🍎 新手 · 完整模式 · 图文跟做</span>
     <h1>新手图文教程</h1>
-    <p class="lead">照着一步步做即可完成安装与使用。全程约 15 分钟，需要：一台干净的 Linux VPS、一部 iPhone、一个支持 REALITY 的客户端 App。</p>
+    <p class="lead">照着一步步做即可完成安装与使用。全程约 15 分钟，需要：一台干净的 Linux VPS、一部 iPhone、一个兼容安装器所生成节点的客户端 App。</p>
   </div>
 </header>
 
@@ -40,6 +40,9 @@
   <div class="container narrow">
     <div class="callout callout-note"><span class="ico">🧭</span>
       <p><strong>你将依次完成：</strong>① 装好落地机 → ② 一键安装 → ③ 读懂输出 → ④ 令牌链接下载描述文件 → ⑤ 安装描述文件 → ⑥ 开启完全信任 → ⑦ 导入节点并全局连接 → ⑧ 重启手机 → ⑨ 验证定位已改变。</p>
+    </div>
+    <div class="callout callout-tip"><span class="ico">★</span>
+      <p><strong>项目更推荐进阶模式：</strong>它包含本页的完整代理与定位功能，并增加 Telegram 地点菜单、节点链接和描述文件交付。只想完成最简安装时，再继续使用本页的新手模式。</p>
     </div>
   </div>
 </section>
@@ -56,7 +59,7 @@
         <p>用 SSH 以 root（或能 <span class="code-inline">sudo</span> 的用户）登录：</p>
         <div class="code"><pre><span class="c"># 把 IP 换成你的落地机地址</span>
 ssh root@<span class="s">你的落地机IP</span></pre></div>
-        <div class="callout callout-tip"><span class="ico">✅</span><p>建议用一台<strong>专门</strong>的新机器，不要装在已经跑着别的 Xray/建站的服务器上。</p></div>
+        <div class="callout callout-tip"><span class="ico">✅</span><p>建议用一台<strong>专门</strong>的新机器，不要装在已经运行其它代理服务或网站的服务器上。</p></div>
       </div>
     </div>
 
@@ -64,7 +67,7 @@ ssh root@<span class="s">你的落地机IP</span></pre></div>
     <div class="step">
       <h3>一键安装（选「完整模式」）</h3>
       <div class="step-body">
-        <p>在落地机上粘贴下面这一条命令，回车。安装器会问你选哪种模式，直接输入 <span class="kbd">1</span> 选完整模式（或直接回车用默认）。安装成功后会自动进入 CA 描述文件临时下载，不用再手动输入下载命令。</p>
+        <p>在落地机上粘贴下面这一条命令，回车。安装器会问你选哪种模式，输入 <span class="kbd">1</span> 或直接回车选择新手完整模式。安装成功后会自动进入 CA 描述文件临时下载，不用再手动输入下载命令。</p>
         <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
   | sudo bash</pre></div>
         <p>想跳过提问、直接装完整模式，也可以：</p>
@@ -84,8 +87,8 @@ ssh root@<span class="s">你的落地机IP</span></pre></div>
               <text x="22" y="146" fill="#cbd5e1">  2) Proxy endpoint + Telegram controller (advanced)</text>
               <text x="22" y="168" fill="#cbd5e1">  3) Location modifier only (expert)</text>
               <text x="22" y="194" fill="#e2e8f0">Selection [1]: <tspan fill="#ffd43b">1</tspan></text>
-              <text x="22" y="224" fill="#94a3b8">==&gt; Installing verified Xray …</text>
-              <text x="22" y="246" fill="#94a3b8">==&gt; Validating the managed REALITY target …</text>
+              <text x="22" y="224" fill="#94a3b8">==&gt; Installing the managed proxy endpoint …</text>
+              <text x="22" y="246" fill="#94a3b8">==&gt; Validating transport parameters …</text>
               <text x="22" y="276" fill="#63e6be">Home-Location-Endpoint is ready in full mode.</text>
             </g>
           </svg>
@@ -105,8 +108,8 @@ ssh root@<span class="s">你的落地机IP</span></pre></div>
             <g font-family="monospace" font-size="14">
               <text x="22" y="40" fill="#63e6be">Home-Location-Endpoint is ready in full mode.</text>
               <text x="22" y="72" fill="#e2e8f0">Random location city: <tspan fill="#ffd43b">Santa Clara, US</tspan></text>
-              <text x="22" y="104" fill="#e2e8f0">VLESS URI:</text>
-              <text x="22" y="126" fill="#91a7ff">vless://bc73…@203.0.113.7:443?…#Home-Location-Endpoint</text>
+              <text x="22" y="104" fill="#e2e8f0">Node URI:</text>
+              <text x="22" y="126" fill="#91a7ff">protocol://credential…@203.0.113.7:443?…#Home-Location-Endpoint</text>
               <text x="22" y="170" fill="#e2e8f0">iOS CA profile:</text>
               <text x="22" y="192" fill="#91a7ff">/etc/home-location-endpoint/Home-Location-Endpoint-CA.mobileconfig</text>
               <text x="22" y="228" fill="#e2e8f0">CA SHA-256: <tspan fill="#ffa8a8">12:CC:44:03:F1:DB:…:4C:0E</tspan></text>
@@ -118,7 +121,7 @@ ssh root@<span class="s">你的落地机IP</span></pre></div>
               <text x="700" y="228" fill="#ffa8a8">③ 指纹 → 装描述文件时核对</text>
             </g>
           </svg>
-          <figcaption>①VLESS 节点链接　②CA 描述文件路径　③CA 的 SHA-256 指纹</figcaption>
+          <figcaption>①节点链接　②CA 描述文件路径　③CA 的 SHA-256 指纹</figcaption>
         </figure>
         <p>随时可以再看这两样：</p>
         <div class="code"><pre><span class="c"># 再次打印节点链接</span>
@@ -310,7 +313,7 @@ sudo hle profile</pre></div>
     <div class="step">
       <h3>把节点导入客户端，并用「全局模式」连接</h3>
       <div class="step-body">
-        <p>复制安装输出里的 VLESS 链接（第 ① 处，或用 <span class="code-inline">sudo hle show-link</span> 再打印），在一个支持 <strong>REALITY + Vision</strong> 的 iOS 客户端里「从剪贴板导入」。连接时务必选 <strong>全局 / Global（全隧道 TUN）</strong>模式，让系统定位服务的流量也进隧道。</p>
+        <p>复制安装输出里的节点链接（第 ① 处，或用 <span class="code-inline">sudo hle show-link</span> 再打印），在兼容对应传输协议的 iOS 客户端里“从剪贴板导入”。连接时务必选择 <strong>全局 / Global（全隧道 TUN）</strong>模式，让系统定位服务的流量也进隧道。</p>
         <figure class="figure">
           <svg viewBox="0 0 300 430" role="img" aria-label="客户端连接示意" style="max-width:280px">
             <rect x="6" y="6" width="288" height="418" rx="30" fill="#0b1220" stroke="var(--border-strong)" stroke-width="3"/>
@@ -320,7 +323,7 @@ sudo hle profile</pre></div>
             <rect x="28" y="76" width="244" height="70" rx="14" fill="#16203a" stroke="#2a3a5f"/>
             <circle cx="58" cy="111" r="14" fill="#3b5bdb"/><text x="58" y="117" font-size="14" text-anchor="middle">📍</text>
             <text x="82" y="106" font-size="13.5" fill="#e6e9ef" font-weight="700">Home-Location-Endpoint</text>
-            <text x="82" y="126" font-size="11" fill="#8b98b5">VLESS · REALITY · Vision · 24ms</text>
+            <text x="82" y="126" font-size="11" fill="#8b98b5">加密传输 · 24ms</text>
             <text x="256" y="116" font-size="14" fill="#38d9a9" text-anchor="end">✓</text>
             <!-- mode -->
             <text x="34" y="176" font-size="11.5" fill="#8b98b5">路由模式</text>
@@ -390,14 +393,14 @@ sudo hle profile</pre></div>
       <tr><td><span class="code-inline">sudo hle pause</span></td><td>暂停坐标改写，保持代理正常并返回 Apple 原始定位响应</td></tr>
       <tr><td><span class="code-inline">sudo hle resume</span></td><td>恢复坐标改写，无需重启服务或重新连接节点</td></tr>
       <tr><td><span class="code-inline">sudo hle verify</span></td><td>本地完整性自检（证书、权限、监听、服务等）</td></tr>
-      <tr><td><span class="code-inline">sudo hle show-link</span></td><td>再次打印 VLESS 节点链接</td></tr>
+      <tr><td><span class="code-inline">sudo hle show-link</span></td><td>再次打印节点链接</td></tr>
       <tr><td><span class="code-inline">sudo hle profile</span></td><td>打印 CA 描述文件路径</td></tr>
       <tr><td><span class="code-inline">sudo hle profile serve</span></td><td>生成一次性令牌链接 + 二维码把描述文件下到手机（100 分钟、下载一次即失效）</td></tr>
       <tr><td><span class="code-inline">sudo hle relocate</span></td><td>在同一出口城市内重新随机取点</td></tr>
       <tr><td><span class="code-inline">sudo hle uninstall</span></td><td>停服务并删除本项目安装的全部文件、证书与账户（加 <span class="code-inline">--yes</span> 免确认）</td></tr>
     </table></div>
     <p>不用了想彻底删除时，在落地机上运行 <span class="code-inline">sudo hle uninstall</span> 即可；装到手机上的描述文件也记得从手机移除。</p>
-    <div class="callout callout-note"><span class="ico">⏸️</span><p><strong>只想临时还原真实定位？</strong>不要停 Xray、不要卸载证书，运行 <span class="code-inline">sudo hle pause</span> 即可。此时代理和普通上网不受影响；运行 <span class="code-inline">sudo hle resume</span> 后，新定位请求会立即恢复改写。暂停状态跨重启保留。</p></div>
+    <div class="callout callout-note"><span class="ico">⏸️</span><p><strong>只想临时还原真实定位？</strong>不要停代理服务、不要卸载证书，运行 <span class="code-inline">sudo hle pause</span> 即可。此时代理和普通上网不受影响；运行 <span class="code-inline">sudo hle resume</span> 后，新定位请求会立即恢复改写。暂停状态跨重启保留。</p></div>
   </div>
 </section>
 
@@ -419,7 +422,7 @@ sudo hle profile</pre></div>
     <p>一些 App 会综合多种信号（GPS、蓝牙、账号、IP）。本项目只改写 Apple <em>网络</em>定位，无法覆盖全部信号，结果可能不稳定。这是方案的固有局限，请阅读<a href="/#security">安全与局限</a>。</p>
 
     <h3>怎样临时停止修改定位，但继续使用代理？</h3>
-    <p>在落地机运行 <span class="code-inline">sudo hle pause</span>。它不会停掉 Xray 或拦截器，而是把 Apple 原始定位响应不作坐标改写地返回。用 <span class="code-inline">sudo hle status</span> 应看到 <span class="code-inline">Modification: paused</span>；需要恢复时运行 <span class="code-inline">sudo hle resume</span>。</p>
+    <p>在落地机运行 <span class="code-inline">sudo hle pause</span>。它不会停掉代理服务或定位修改器，而是把 Apple 原始定位响应不作坐标改写地返回。用 <span class="code-inline">sudo hle status</span> 应看到 <span class="code-inline">Modification: paused</span>；需要恢复时运行 <span class="code-inline">sudo hle resume</span>。</p>
 
     <div class="callout callout-note" style="margin-top:26px"><span class="ico">➡️</span><p>想用 Telegram 菜单切换多个地点？请看 <a href="/telegram.html"><strong>进阶控制教程</strong></a>。需要中转机、NAT 或仅定位模式接线，可继续查看前置配置与高手对接。</p></div>
   </div>

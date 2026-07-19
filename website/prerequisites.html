@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>前置配置指引 · 中转 / 链式代理 / NAT · Home-Location-Endpoint</title>
 <meta name="description" content="不属于本项目范围但常见的前置配置：落地机在 NAT 后如何用 --server、用 Realm 做纯 TCP 中转前置、以及墙内先过一层代理再到落地机的链式代理接法。">
-<link rel="stylesheet" href="/assets/style.css?v=4">
+<link rel="stylesheet" href="/assets/style.css?v=5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -67,7 +67,7 @@
 <section id="realm" class="alt anchor">
   <div class="container narrow">
     <h2>② Realm 纯 TCP 中转前置</h2>
-    <p class="sec-sub">前置机只做 TCP 字节流转发：不装 Xray、不终止 REALITY、不持有 UUID/私钥、不运行拦截器。</p>
+    <p class="sec-sub">前置机只做 TCP 字节流转发：不安装代理核心、不终止外层加密、不持有认证凭据，也不运行定位修改器。</p>
     <figure class="figure">
       <svg viewBox="0 0 820 170" role="img" aria-label="Realm 中转拓扑">
         <defs><marker id="ra" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--brand)"/></marker></defs>
@@ -83,11 +83,11 @@
         <text x="459" y="82" text-anchor="middle" font-size="10.5" fill="var(--text-mut)">转 LANDING_IP:443</text>
         <g><rect x="518" y="52" width="160" height="82" rx="12" fill="var(--surface)" stroke="var(--brand)" stroke-width="1.6"/>
           <text x="598" y="82" text-anchor="middle" font-size="13" fill="var(--text)" font-weight="800">落地机</text>
-          <text x="598" y="102" text-anchor="middle" font-size="11" fill="var(--text-mut)">REALITY 落地 + 拦截器</text>
+          <text x="598" y="102" text-anchor="middle" font-size="11" fill="var(--text-mut)">代理落地 + 定位修改器</text>
           <text x="598" y="118" text-anchor="middle" font-size="11" fill="var(--text-mut)">唯一落地</text></g>
         <text x="710" y="97" font-size="11" fill="var(--text-mut)">→ Internet</text>
       </svg>
-      <figcaption>客户端连前置机，前置机把 TCP 原样转给落地机。REALITY 的解密与定位改写都在落地机完成。</figcaption>
+      <figcaption>客户端连前置机，前置机把 TCP 原样转给落地机。传输解密与定位改写都在落地机完成。</figcaption>
     </figure>
     <h3>前置机 Realm 配置（TOML）</h3>
     <div class="code"><pre>[log]
@@ -105,14 +105,14 @@ tcp_keepalive_probe = 3
 listen = <span class="s">"0.0.0.0:443"</span>
 remote = <span class="s">"LANDING_IP:443"</span></pre></div>
     <h3>客户端怎么改</h3>
-    <p>把节点里的<strong>服务器地址与端口</strong>换成 <span class="code-inline">RELAY_IP:443</span>；<strong>UUID、flow、SNI、REALITY 公钥(pbk)、short id(sid) 等一律保持落地机生成的原值</strong>，中转机不得改写。</p>
+    <p>把节点里的<strong>服务器地址与端口</strong>换成 <span class="code-inline">RELAY_IP:443</span>；认证、加密、握手与目标参数一律保持落地机生成的原值，中转机不得改写。</p>
     <h3>必须满足</h3>
     <ul>
-      <li>转发协议是 <strong>TCP</strong>；不要给这条 REALITY 链加 PROXY protocol。</li>
+      <li>转发协议是 <strong>TCP</strong>；除非落地协议明确支持并启用，否则不要额外加入 PROXY protocol。</li>
       <li>前置机到落地机的安全组/防火墙尽量<strong>只允许前置机 IP</strong> 访问落地端口。</li>
-      <li>需要 UDP 应用时，VLESS 自身可在 TCP/REALITY 内承载 XUDP；Realm 这一跳仍只转发外层 TCP，<strong>不要</strong>把同端口配成公开 UDP full-cone relay。</li>
+      <li>需要 UDP 应用时，所选代理协议必须能在这条 TCP 链内承载相应流量；Realm 这一跳仍只转发外层 TCP，<strong>不要</strong>把同端口配成公开 UDP full-cone relay。</li>
       <li>多层中转时每层都同样纯 TCP 转发，且<strong>最终只能有一个</strong>落地机。</li>
-      <li>REALITY 伪装站点由<strong>落地机</strong>访问，与前置机无关。</li>
+      <li>传输协议依赖的握手目标或外部资源由<strong>落地机</strong>访问，与前置机无关。</li>
     </ul>
     <p><a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/REALM.md" target="_blank" rel="noopener">仓库 Realm 前置说明 ↗</a></p>
   </div>
@@ -137,7 +137,7 @@ remote = <span class="s">"LANDING_IP:443"</span></pre></div>
         <text x="453" y="68" text-anchor="middle" font-size="10" fill="var(--text-mut)">从它出口连落地</text>
         <g><rect x="510" y="44" width="160" height="70" rx="12" fill="var(--surface)" stroke="var(--brand)" stroke-width="1.6"/>
           <text x="590" y="72" text-anchor="middle" font-size="12.5" fill="var(--text)" font-weight="800">本项目落地机</text>
-          <text x="590" y="92" text-anchor="middle" font-size="10.5" fill="var(--text-mut)">REALITY + 定位改写</text></g>
+          <text x="590" y="92" text-anchor="middle" font-size="10.5" fill="var(--text-mut)">代理落地 + 定位改写</text></g>
         <text x="700" y="83" font-size="11" fill="var(--text-mut)">→ Apple</text>
       </svg>
       <figcaption>「前置代理」负责穿透受限网络，本项目落地机负责定位改写。两者职责分开。</figcaption>

@@ -2,8 +2,8 @@
 
 把一台 Linux 落地机部署为 Apple 网络定位修改端点。安装器提供三种模式：
 
-1. **新手模式（推荐）**：安装 VLESS + REALITY + Vision，并接入定位修改器。
-2. **进阶模式**：增加 Telegram 定位菜单，并可选择 VLESS + REALITY + Vision 或 SS2022。
+1. **新手模式**：安装 VLESS + REALITY + Vision，并接入定位修改器。
+2. **进阶模式（推荐）**：增加 Telegram 定位菜单，并可选择 VLESS + REALITY + Vision 或 SS2022。
 3. **高手模式**：只安装定位修改器，由用户把自己的代理入站接入。
 
 三种模式都会按落地机公网出口 IP 识别城市，并在该城市内抽取随机坐标。普通代理流量不经
@@ -76,7 +76,7 @@ Home-Location-Endpoint landing server
 
 ## 一键安装
 
-交互安装会询问选择新手、进阶或高手模式：
+交互安装会询问选择新手、进阶或高手模式；项目推荐选择进阶模式（输入 `2`）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
@@ -230,7 +230,7 @@ APT 软件包、故障日志和已加载内核模块不回滚，详情见[运维
 
 ## English
 
-Home-Location-Endpoint offers beginner, advanced, and modifier-only installs. Advanced mode adds a
+Home-Location-Endpoint offers beginner, advanced, and modifier-only installs. The recommended advanced mode adds a
 single-operator Telegram location menu and supports either VLESS + REALITY + Vision or SS2022.
 It rewrites only scoped Apple network-location responses to selected WGS84 points. Read the security
 and privacy limitations before trusting the generated private CA on an iPhone.

@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>高手技术对接 · 仅定位模式 · Home-Location-Endpoint</title>
-<meta name="description" content="仅定位修改器模式：把定位拦截器接入你已有的 Xray / 代理核心。sniffing routeOnly、两个 outbound、两条路由规则与回环安全例外的精确对接。">
-<link rel="stylesheet" href="/assets/style.css?v=4">
+<meta name="description" content="仅定位修改器模式：把定位修改器接入你已有的代理核心，并提供协议中立的接线要求和一份可验证的配置示例。">
+<link rel="stylesheet" href="/assets/style.css?v=5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -32,7 +32,7 @@
   <div class="container">
     <span class="eyebrow">⚙ 高手 · 仅定位模式 · 自管代理核心</span>
     <h1>高手技术对接</h1>
-    <p class="lead">你已经能独立维护自己的代理核心与路由。<strong>仅定位修改器</strong>模式只装拦截器、证书与接线示例，由你把自己的入站接到定位修改器，与现有 Xray / 其他核心共存。本页讲清关键对接点。</p>
+    <p class="lead">你已经能独立维护自己的代理核心与路由。<strong>仅定位修改器</strong>模式只安装定位修改器、证书与接线示例，由你把自己的入站接入。实现不限定代理协议或核心，本页使用一套现成配置作为可验证示例。</p>
   </div>
 </header>
 
@@ -56,11 +56,11 @@
 <section id="install" class="anchor section-tight">
   <div class="container narrow">
     <h2>① 安装仅定位模式</h2>
-    <p>不安装 Xray、不创建代理入站、不开放端口、不改 UFW、不写 TCP 调优——只装回环拦截器、城市识别与选点、私有 CA 与 iOS 描述文件、<span class="code-inline">hle</span> 运维命令，以及接线示例 <span class="code-inline">/etc/home-location-endpoint/xray-location-routing.example.json</span>。</p>
+    <p>不安装代理核心、不创建代理入站、不开放端口、不改 UFW、不写 TCP 调优——只装回环定位修改器、城市识别与选点、私有 CA 与 iOS 描述文件、<span class="code-inline">hle</span> 运维命令，以及一份代理核心接线示例。</p>
     <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
   | sudo bash -s -- <span class="k">--mode</span> modifier-only</pre></div>
     <div class="callout callout-warn"><span class="ico">⚠️</span><p>同一台机器后续只能用<strong>相同模式</strong>重跑安装器，不会在 full、advanced 与 modifier-only 间自动迁移，以免覆盖你自管的代理配置。</p></div>
-    <p>安装输出会给你：CA 描述文件与 SHA-256、回环监听地址 <span class="code-inline">127.0.0.1:10451</span>、以及接线示例文件路径。不生成 VLESS URI。</p>
+    <p>安装输出会给你：CA 描述文件与 SHA-256、回环监听地址 <span class="code-inline">127.0.0.1:10451</span>、以及接线示例文件路径。不生成代理节点链接。</p>
     <div class="callout callout-note"><span class="ico">📲</span>
       <p>把 CA 描述文件装到手机的方式与新手一致：交互式安装完成后会自动启动一次性令牌链接（默认 100 分钟、下载一次即失效）。以后需要重新生成时运行 <span class="code-inline">sudo hle profile serve</span>；如需覆盖入口地址，使用 <span class="code-inline">--host 手机可访问的地址</span>。详见 <a href="/beginner.html">新手教程第 4 步</a>。</p>
     </div>
@@ -135,7 +135,7 @@
   }
 },
 { <span class="k">"tag"</span>: <span class="s">"block-location-quic"</span>, <span class="k">"protocol"</span>: <span class="s">"blackhole"</span>, <span class="k">"settings"</span>: {} }</pre></div>
-    <div class="callout callout-danger"><span class="ico">⛔</span><p>不要把 VLESS/REALITY 的<strong>外层</strong>加密连接直接 DNAT 到 10451。定位修改器无法解析代理外层协议——它只处理解密后、指向定位域名的<strong>内层</strong> TCP。</p></div>
+    <div class="callout callout-danger"><span class="ico">⛔</span><p>不要把代理的<strong>外层</strong>加密连接直接 DNAT 到 10451。定位修改器无法解析外层传输协议——它只处理解密后、指向定位域名的<strong>内层</strong> TCP。</p></div>
   </div>
 </section>
 
@@ -178,7 +178,7 @@
 <section id="other" class="anchor">
   <div class="container narrow">
     <h2>⑦ 用其它代理核心？对接的等价能力</h2>
-    <p>不用 Xray 也可以，只要你的核心具备下面这组等价能力：</p>
+    <p>示例以一种常见代理核心展示，但任何核心只要具备下面这组等价能力都可以接入：</p>
     <ul>
       <li>在代理认证与解密<strong>之后</strong>，能拿到内层 TLS 的 SNI / 目标域名；</li>
       <li>仅把这三类 Apple 定位域名的 TCP/443 重定向到 <span class="code-inline">127.0.0.1:10451</span>：<br>
