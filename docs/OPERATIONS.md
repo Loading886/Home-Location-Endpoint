@@ -61,11 +61,11 @@ sysctl 调优在下次重启前仍然生效。卸载不会删除已装到 iPhone
 不要用未经审查的 `rm -rf` 清理混合环境；如果安装被强制中断留下半套状态，先按下文
 “事务与失败边界”排查后再决定用 `hle uninstall` 或手动恢复备份。
 
-例如固定安装 `v0.2.4`：
+例如固定安装 `v0.2.5`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.4/install.sh \
-  | sudo env HLE_VERSION=v0.2.4 bash
+curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/v0.2.5/install.sh \
+  | sudo env HLE_VERSION=v0.2.5 bash
 ```
 
 ## 事务与失败边界

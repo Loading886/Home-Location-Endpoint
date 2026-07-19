@@ -184,6 +184,26 @@ class InterceptorTests(unittest.TestCase):
         self.assertNotIn("Keep-Alive", response)
         self.assertIn("Content-Length: 2", response)
 
+    def test_rewrite_preserves_apple_cache_contract(self):
+        response = interceptor.build_response(
+            "HTTP/1.1 200 OK",
+            [
+                "Content-Encoding: gzip",
+                "Cache-Control: max-age=10800",
+                "Age: 42",
+                'ETag: "apple-validator"',
+                "Last-Modified: Tue, 01 Jan 2030 00:00:00 GMT",
+            ],
+            {"content-encoding": "gzip"},
+            b"plain",
+            strip_content_encoding=True,
+        ).decode("latin1")
+        self.assertNotIn("Content-Encoding", response)
+        self.assertIn("Cache-Control: max-age=10800\r\n", response)
+        self.assertIn("Age: 42\r\n", response)
+        self.assertIn('ETag: "apple-validator"\r\n', response)
+        self.assertIn("Last-Modified: Tue, 01 Jan 2030 00:00:00 GMT\r\n", response)
+
     def test_upstream_parser_skips_informational_response(self):
         reader = io.BytesIO(
             b"HTTP/1.1 100 Continue\r\n\r\n"
@@ -212,12 +232,24 @@ class InterceptorTests(unittest.TestCase):
         payload = build_tile([(34.0, -118.0), (34.001, -117.999)])
         with mock.patch.object(interceptor, "WIFI_TEMPLATE_TTL", 10):
             self.assertEqual(interceptor.remember_wifi_template(payload, now=1), 2)
-            replacement, count, anchor = interceptor.build_template_coverage_tile(
-                -80.4167, 77.1167, now=2
-            )
-            self.assertEqual(count, 2)
-            self.assertIsNotNone(anchor)
-            self.assertEqual(len(wx.decode_locations(replacement)), 2)
+            for target in ((-80.4167, 77.1167), (40.0, -74.0)):
+                replacement, count, anchor = interceptor.build_template_coverage_tile(
+                    *target, now=2
+                )
+                points = wx.decode_locations(replacement)
+                self.assertEqual(count, 2)
+                self.assertIsNotNone(anchor)
+                self.assertEqual(len(points), 2)
+                self.assertAlmostEqual(
+                    sum(point[0] for point in points) / len(points),
+                    target[0],
+                    places=6,
+                )
+                self.assertAlmostEqual(
+                    sum(point[1] for point in points) / len(points),
+                    target[1],
+                    places=6,
+                )
             self.assertIsNone(interceptor.recent_wifi_template(now=12))
 
     def test_seed_request_replaces_duplicate_tile_keys(self):

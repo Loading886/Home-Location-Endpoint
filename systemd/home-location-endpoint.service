@@ -9,6 +9,9 @@ User=home-location
 Group=home-location
 UMask=0077
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=GSLOC_RECENT_WIFI_TTL=1800
+Environment=GSLOC_RECENT_WIFI_MAX=256
+Environment=GSLOC_NO_FIX_MIN_LOCATIONS=32
 EnvironmentFile=-/etc/home-location-endpoint/runtime.env
 ExecStart=/usr/bin/python3 /opt/home-location-endpoint/interceptor.py
 Restart=on-failure

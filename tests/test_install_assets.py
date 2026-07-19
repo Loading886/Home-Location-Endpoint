@@ -200,6 +200,9 @@ class InstallAssetTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("MemoryMax=256M", service)
         self.assertIn("TasksMax=64", service)
+        self.assertIn("Environment=GSLOC_RECENT_WIFI_TTL=1800", service)
+        self.assertIn("Environment=GSLOC_RECENT_WIFI_MAX=256", service)
+        self.assertIn("Environment=GSLOC_NO_FIX_MIN_LOCATIONS=32", service)
         self.assertIn("maxsize 16M", logrotate)
 
     def test_advanced_bot_is_low_privilege_with_scoped_handoff_files(self):
