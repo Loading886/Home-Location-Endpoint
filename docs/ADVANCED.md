@@ -36,6 +36,9 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/m
 - `➕ 增加地点`：依次输入短名称、识别地址和 `纬度, 经度` 格式的 WGS84 坐标，确认后保存。
 - `➖ 删除地点`：二次确认后删除非活动地点；当前地点和最后一个地点不可删除。
 
+地点总数限制为 50 个（含预置与出口城市），避免生成超过 Telegram 实用范围的键盘；达到上限后
+先删除不用的地点再增加。
+
 首次安装会生成出口 IP 城市随机点，并为以下地点各生成一个安装级随机点：
 
 `洛杉矶`、`东京`、`香港`、`新加坡`、`吉隆坡`、`巴黎`、`法兰克福`、`Reykjavík`、
@@ -71,8 +74,9 @@ sudo systemctl status home-location-telegram-bot --no-pager
 sudo journalctl -u home-location-telegram-bot --since '30 minutes ago' --no-pager
 ```
 
-`hle verify` 除了服务状态，还检查地点库、文件权限和最近 180 秒内的 Bot API 心跳。进程存活但
-Token 已撤销、网络无法到达 Telegram 或 API 长期报错时，心跳会失败。
+`hle verify` 除了服务状态，还检查地点库、文件权限和最近 180 秒内的 Bot API 心跳。只有一次
+`getUpdates` 长轮询成功后才会写入心跳；进程存活但 Token 已撤销、网络无法到达 Telegram、
+同一 Token 被另一控制器占用或 API 长期报错时，心跳都会失败。
 
 重新运行相同模式的安装器会复用地点库、Bot 凭据、代理凭据与有效 CA，并重新验证 Bot/Chat。
 安装器不支持原地切换安装模式或代理协议；需要变更时先安全卸载，再重新安装并在手机更新节点。

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 - 2026-07-19
+
+- Mark the Telegram controller healthy only after its first successful long
+  poll, so a duplicated Bot token or broken Telegram path cannot pass install
+  readiness on a startup-only heartbeat.
+- Bound the advanced location catalog to 50 entries to keep Telegram inline
+  keyboards and local state predictable under repeated operator input.
+- Add repeat-safe Telegram workflow coverage that preserves pre-existing custom
+  locations, plus a real one-time CA profile handoff test for MIME, content, and
+  shutdown-after-download behavior.
+
 ## 0.2.0 - 2026-07-19
 
 - Add an `advanced` installation mode between the beginner full endpoint and

@@ -12,6 +12,22 @@ MODIFIER=/var/lib/home-location-endpoint/control/modifier.state
     exit 1
 }
 
+INITIAL_PRESETS="$(python3 - "${LOCATION}" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+print(json.dumps(sorted(data["presets"]), separators=(",", ":")))
+PY
+)"
+INITIAL_COUNT="$(python3 - "${LOCATION}" <<'PY'
+import json
+import sys
+
+print(len(json.load(open(sys.argv[1], encoding="utf-8"))["presets"]))
+PY
+)"
+
 inject() {
     local kind="$1" value="$2" update_id
     UPDATE_ID=$((UPDATE_ID + 1))
@@ -88,19 +104,23 @@ inject message '🧪 Test Point'
 inject message 'Automated integration test point'
 inject message '40.7128, -74.0060'
 inject callback loc:add-confirm
-wait_for 'any(k.startswith("custom_") for k in location["presets"])'
+wait_for "any(k.startswith(\"custom_\") and k not in ${INITIAL_PRESETS} for k in location[\"presets\"])"
 
-CUSTOM_KEY="$(python3 - "${LOCATION}" <<'PY'
+CUSTOM_KEY="$(python3 - "${LOCATION}" "${INITIAL_PRESETS}" <<'PY'
 import json
 import sys
 
 data = json.load(open(sys.argv[1], encoding="utf-8"))
-print(next(key for key in data["presets"] if key.startswith("custom_")))
+initial = set(json.loads(sys.argv[2]))
+print(next(
+    key for key in data["presets"]
+    if key.startswith("custom_") and key not in initial
+))
 PY
 )"
 inject callback "loc:delete:${CUSTOM_KEY}"
 inject callback "loc:delete-confirm:${CUSTOM_KEY}"
-wait_for 'not any(k.startswith("custom_") for k in location["presets"])'
+wait_for "\"${CUSTOM_KEY}\" not in location[\"presets\"]"
 
 inject callback loc:set:ip_city
 wait_for 'location["active"] == "ip_city" and modifier == "active"'
@@ -110,7 +130,7 @@ import json
 import sys
 print(len(json.load(open(sys.argv[1], encoding="utf-8"))["presets"]))
 PY
-)" == "10" ]] || { echo "unexpected final preset count" >&2; exit 1; }
+)" == "${INITIAL_COUNT}" ]] || { echo "unexpected final preset count" >&2; exit 1; }
 
 hle verify >/dev/null
 if runuser -u home-location-bot -- cat \

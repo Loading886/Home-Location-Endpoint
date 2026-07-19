@@ -13,9 +13,10 @@ from pathlib import Path
 
 
 class State:
-    def __init__(self, chat_id, log_path):
+    def __init__(self, chat_id, log_path, conflict_polls=False):
         self.chat_id = str(chat_id)
         self.log_path = Path(log_path)
+        self.conflict_polls = conflict_polls
         self.lock = threading.Lock()
         self.updates = []
 
@@ -101,6 +102,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             result = {"id": int(state.chat_id), "type": "private"}
         elif method == "getUpdates":
+            if state.conflict_polls:
+                self.respond(409, {
+                    "ok": False,
+                    "description": "terminated by another getUpdates request",
+                })
+                return
             try:
                 offset = int(payload.get("offset", "0"))
             except ValueError:
@@ -125,6 +132,7 @@ def parse_args():
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--chat-id", required=True)
     parser.add_argument("--log", type=Path, required=True)
+    parser.add_argument("--conflict-polls", action="store_true")
     return parser.parse_args()
 
 
@@ -132,7 +140,7 @@ def main():
     args = parse_args()
     args.log.parent.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    server.state = State(args.chat_id, args.log)
+    server.state = State(args.chat_id, args.log, args.conflict_polls)
     server.serve_forever()
 
 

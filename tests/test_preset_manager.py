@@ -93,6 +93,26 @@ class PresetManagerTests(unittest.TestCase):
             self.assertEqual(state.read_text(encoding="ascii"), "paused\n")
             self.assertTrue(list(backup.glob("location.json.*.bak")))
 
+    def test_preset_count_is_bounded_for_telegram_keyboards(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "location.json"
+            backup = root / "backups"
+            config = self.base_config()
+            template = next(iter(config["presets"].values()))
+            for index in range(1, preset_manager.MAX_PRESETS):
+                config["presets"]["preset_%02d" % index] = dict(template)
+            preset_manager.atomic_write(path, config)
+
+            with self.assertRaisesRegex(preset_manager.PresetError, "上限"):
+                preset_manager.add(
+                    path, backup, "Limit Test", "Test address", 11.0, 21.0
+                )
+
+            config["presets"]["preset_overflow"] = dict(template)
+            with self.assertRaisesRegex(preset_manager.PresetError, "不能超过"):
+                preset_manager.validate(config)
+
 
 if __name__ == "__main__":
     unittest.main()

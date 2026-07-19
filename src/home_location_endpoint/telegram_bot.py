@@ -367,7 +367,6 @@ class LocationBot:
 
     def run(self):
         self.api.call("deleteWebhook", {"drop_pending_updates": "false"})
-        self._write_health()
         while True:
             try:
                 updates = self.api.call(
@@ -381,6 +380,9 @@ class LocationBot:
                 )
                 if not isinstance(updates, list):
                     raise BotError("getUpdates returned an invalid result")
+                # Readiness means that long polling actually worked. Writing a
+                # heartbeat before this point can hide a duplicate Bot token or
+                # a controller that has no working path to Telegram.
                 self._write_health()
                 for update in updates:
                     if not isinstance(update, dict):

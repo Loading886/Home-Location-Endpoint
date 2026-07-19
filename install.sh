@@ -1391,7 +1391,7 @@ install_services() {
             sleep 0.2
         done
         [[ -s /run/home-location-endpoint-bot/health ]] \
-            || die "the Telegram controller could not reach the Bot API"
+            || die "the Telegram controller could not complete a Bot API long poll; another controller may be using this token, or Telegram is unreachable"
     fi
 }
 

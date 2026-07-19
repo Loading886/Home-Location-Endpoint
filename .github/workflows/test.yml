@@ -25,12 +25,12 @@ jobs:
       - run: >-
           bash -n install.sh tests/integration_xray.sh tests/test_installer_modes.sh
           tests/e2e_installed_endpoint.sh tests/e2e_ss2022_endpoint.sh
-          tests/e2e_advanced_bot.sh
+          tests/e2e_advanced_bot.sh tests/e2e_profile_handoff.sh
       - run: >-
           shellcheck --external-sources --severity=style install.sh
           tests/integration_xray.sh tests/test_installer_modes.sh
           tests/e2e_installed_endpoint.sh tests/e2e_ss2022_endpoint.sh
-          tests/e2e_advanced_bot.sh
+          tests/e2e_advanced_bot.sh tests/e2e_profile_handoff.sh
       - run: bash tests/test_installer_modes.sh
       - if: matrix.python-version == '3.12'
         run: bash tests/integration_xray.sh

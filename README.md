@@ -99,7 +99,8 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/m
 ```
 
 `--protocol` 可取 `vless-reality` 或 `ss2022`。Token 只写入 root 管理、Bot 组只读的凭据文件，
-不会进入 `install.env`、节点 URI 或普通日志。
+不会进入 `install.env`、节点 URI 或普通日志。只有 Telegram 长轮询成功后服务才会报告健康；
+地点总数上限为 50 个，避免长期操作生成过大的菜单。
 
 无人值守安装仅定位模式：
 

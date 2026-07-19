@@ -86,6 +86,38 @@ class TelegramBotTests(unittest.TestCase):
             if os.name != "nt":
                 self.assertEqual(health.stat().st_mode & 0o777, 0o600)
 
+    def test_run_reports_ready_only_after_a_successful_long_poll(self):
+        class PollSequence:
+            def __init__(self, first_result):
+                self.first_result = first_result
+                self.polls = 0
+
+            def call(self, method, payload=None, timeout=35):
+                if method == "deleteWebhook":
+                    return True
+                if method != "getUpdates":
+                    raise AssertionError(method)
+                self.polls += 1
+                if self.polls == 1:
+                    if isinstance(self.first_result, BaseException):
+                        raise self.first_result
+                    return self.first_result
+                raise SystemExit("stop test loop")
+
+        bot = telegram_bot.LocationBot(TOKEN, CHAT_ID)
+        bot.api = PollSequence(SystemExit("poll never connected"))
+        with mock.patch.object(bot, "_write_health") as heartbeat:
+            with self.assertRaises(SystemExit):
+                bot.run()
+            heartbeat.assert_not_called()
+
+        bot = telegram_bot.LocationBot(TOKEN, CHAT_ID)
+        bot.api = PollSequence([])
+        with mock.patch.object(bot, "_write_health") as heartbeat:
+            with self.assertRaises(SystemExit):
+                bot.run()
+            heartbeat.assert_called_once_with()
+
     def test_authorized_callbacks_switch_and_restore_atomically(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

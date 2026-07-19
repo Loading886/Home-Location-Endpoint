@@ -18,6 +18,7 @@ from pathlib import Path
 
 EARTH_RADIUS_M = 6_371_008.8
 KEY_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+MAX_PRESETS = 50
 
 
 class PresetError(ValueError):
@@ -68,6 +69,8 @@ def validate(data):
     active = data.get("active")
     if not isinstance(presets, dict) or not presets:
         raise PresetError("至少需要保留一个地点")
+    if len(presets) > MAX_PRESETS:
+        raise PresetError("地点数量不能超过 %d 个" % MAX_PRESETS)
     if not isinstance(active, str) or active not in presets:
         raise PresetError("active 必须指向现有地点")
     _number(data.get("default_accuracy_m", 25), "default_accuracy_m", 0.1, 100000)
@@ -247,6 +250,8 @@ def add(path, backup_dir, menu_label, address, lat, lon):
     lon = _number(lon, "经度", -180, 180)
 
     def change(data):
+        if len(data["presets"]) >= MAX_PRESETS:
+            raise PresetError("地点数量已达 %d 个上限" % MAX_PRESETS)
         key = _new_key(data["presets"])
         data["presets"][key] = {
             "label": menu_label,

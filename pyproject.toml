@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "home-location-endpoint"
-version = "0.2.0"
+version = "0.2.1"
 description = "A scoped Apple network-location endpoint with optional Telegram control"
 requires-python = ">=3.10"
 license = {text = "MIT"}
