@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>高手技术对接 · 仅定位模式 · Home-Location-Endpoint</title>
 <meta name="description" content="仅定位修改器模式：把定位拦截器接入你已有的 Xray / 代理核心。sniffing routeOnly、两个 outbound、两条路由规则与回环安全例外的精确对接。">
-<link rel="stylesheet" href="/assets/style.css?v=3">
+<link rel="stylesheet" href="/assets/style.css?v=4">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -20,7 +20,7 @@
     <div class="nav-links">
       <a href="/">首页</a>
       <a href="/beginner.html">新手教程</a>
-      <a href="/telegram.html">进阶控制</a>
+      <a href="/telegram.html">进阶教程</a>
       <a href="/advanced.html">高手对接</a>
       <a href="/prerequisites.html">前置配置</a>
       <a class="cta" href="https://github.com/Loading886/Home-Location-Endpoint" target="_blank" rel="noopener">GitHub</a>
@@ -186,7 +186,7 @@
       <li>其余目标保持原目的地址（不要全量 DNAT）；</li>
       <li>最好同时阻断这些域名的 UDP/443，促使 QUIC 回退到可被拦截器处理的 TCP。</li>
     </ul>
-    <div class="callout callout-note"><span class="ico">🔌</span><p>拦截器本身与核心无关：它只是 <span class="code-inline">127.0.0.1:10451</span> 上一个终止内层 TLS、改写 gs-loc / WifiTile 响应坐标的本地服务。谁把「解密后的定位域名 TCP 流」喂给它都行。</p></div>
+    <div class="callout callout-note"><span class="ico">🔌</span><p>定位修改器与代理核心相互独立：它只监听 <span class="code-inline">127.0.0.1:10451</span>。把解密后的 Apple 网络定位 TCP 流量交给它即可，其余流量保持原来的出站。</p></div>
   </div>
 </section>
 
@@ -211,9 +211,7 @@ sudo journalctl -u home-location-endpoint --since <span class="s">'10 minutes ag
       <tr><td>改写的定位域名</td><td><span class="code-inline">gs-loc.apple.com</span>, <span class="code-inline">gs-loc-cn.apple.com</span>, <span class="code-inline">gspe85(-\d+)?(-cn)?-ssl.ls.apple.com</span></td></tr>
       <tr><td>回环拦截器</td><td><span class="code-inline">127.0.0.1:10451</span>（仅本机，不对公网开放）</td></tr>
       <tr><td>叶证书 SAN</td><td>两个 gs-loc 域名 + <span class="code-inline">*.ls.apple.com</span></td></tr>
-      <tr><td>处理内容</td><td>WLOC（Wi-Fi/蜂窝）与 WifiTile 响应中的坐标，保留批次几何关系</td></tr>
-      <tr><td>no-fix 处理</td><td>明确的纯 sentinel 批次生成目标点 45 米内的稳定微型坐标簇；稀疏批次只用同一进程近期观测到的真实 Wi-Fi 身份补足；未知或畸形响应仍失败关闭</td></tr>
-      <tr><td>WifiTile 404</td><td>依次尝试进程内完整瓦片缓存、Apple 已知有效公共种子、近期真实 Wi-Fi 身份最小瓦片；均不可用时保留 Apple 原始 404</td></tr>
+      <tr><td>处理内容</td><td>Apple 网络定位响应中的坐标；普通网站和其它 App 流量不经过定位修改器</td></tr>
       <tr><td>暂停行为</td><td><span class="code-inline">hle pause</span> 后使用手机请求的原始 Apple host，并返回未改写响应；代理流量不中断</td></tr>
     </table></div>
     <p>其余安全边界与完整模式一致：叶私钥位于落地机、Apple 仍收到原始请求、只覆盖网络定位、需全隧道否则绕过。详见 <a href="/#security">安全与局限</a> 与 <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/MODIFIER-ONLY.md" target="_blank" rel="noopener">仓库 MODIFIER-ONLY 文档 ↗</a>。</p>
@@ -234,7 +232,7 @@ sudo journalctl -u home-location-endpoint --since <span class="s">'10 minutes ag
       <div class="foot-links">
         <strong style="color:var(--text-soft)">相关</strong>
         <a href="/beginner.html">新手图文教程</a>
-        <a href="/telegram.html">Telegram 进阶控制</a>
+        <a href="/telegram.html">Telegram 进阶教程</a>
         <a href="/prerequisites.html">前置配置</a>
         <a href="/#security">安全与局限</a>
       </div>
@@ -250,6 +248,6 @@ sudo journalctl -u home-location-endpoint --since <span class="s">'10 minutes ag
   </div>
 </footer>
 
-<script src="/assets/site.js?v=3" defer></script>
+<script src="/assets/site.js?v=4" defer></script>
 </body>
 </html>

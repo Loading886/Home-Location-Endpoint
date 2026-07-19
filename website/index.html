@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home-Location-Endpoint · Apple 网络定位修改端点</title>
-<meta name="description" content="把一台 Linux 落地机部署为 Apple 网络定位修改端点。支持完整代理、Telegram 多地点控制和仅定位修改器三种模式，并对南极等高纬稀疏覆盖区做稳定化处理。">
-<link rel="preload" href="/assets/style.css?v=3" as="style">
-<link rel="stylesheet" href="/assets/style.css?v=3">
+<meta name="description" content="把一台 Linux 落地机部署为 Apple 网络定位修改端点。提供新手完整安装、Telegram 多地点进阶控制和高手自定义对接三种模式。">
+<link rel="preload" href="/assets/style.css?v=4" as="style">
+<link rel="stylesheet" href="/assets/style.css?v=4">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -22,7 +22,7 @@
       <a href="/#how">工作原理</a>
       <a href="/#modes">三种模式</a>
       <a href="/beginner.html">新手教程</a>
-      <a href="/telegram.html">进阶控制</a>
+      <a href="/telegram.html">进阶教程</a>
       <a href="/advanced.html">高手对接</a>
       <a href="/prerequisites.html">前置配置</a>
       <a class="cta" href="https://github.com/Loading886/Home-Location-Endpoint" target="_blank" rel="noopener">GitHub</a>
@@ -34,7 +34,7 @@
   <div class="container">
     <span class="eyebrow">◆ 开源 · MIT · 自托管 · v0.2.2</span>
     <h1>一键脚本<br>更改iPhone手机定位</h1>
-    <p class="lead">iPhone 通过全隧道连接你自己的落地机。普通流量原样直连，<strong>只有</strong> Apple 网络定位请求被改写；可选择一键完整节点、Telegram 多地点控制，或只把定位修改器接入现有代理核心。需要时还能随时暂停改写而不断开代理。</p>
+    <p class="lead">选择适合你的模式，一步步把自己的落地机接入 iPhone。新手直接安装完整节点，进阶用户用 Telegram 随时切换地点，高手可以接入已有代理核心。</p>
 
     <div class="path-hero">
       <a class="path-big path-big-new" href="/beginner.html">
@@ -72,6 +72,29 @@
         <h3>我是新手 🍎</h3>
         <p>一条命令装好完整端点，跟着截图把描述文件装进 iPhone、连接、看定位改变。</p>
         <span class="go">看图文教程 →</span>
+      </a>
+
+      <a class="path-big path-big-advanced" href="/telegram.html">
+        <span class="illus">
+          <svg viewBox="0 0 360 180" role="img" aria-label="进阶模式插画">
+            <circle cx="60" cy="52" r="42" fill="var(--warn)" opacity=".09"/>
+            <circle cx="304" cy="134" r="44" fill="var(--brand)" opacity=".08"/>
+            <rect x="76" y="34" width="208" height="122" rx="24" fill="var(--surface)" stroke="var(--warn)" stroke-width="2"/>
+            <path d="M112 72 h136 a12 12 0 0 1 12 12 v24 a12 12 0 0 1 -12 12 h-70 l-22 18 v-18 h-44 a12 12 0 0 1 -12 -12 v-24 a12 12 0 0 1 12 -12Z" fill="var(--warn-bg)" stroke="var(--warn)" stroke-width="2"/>
+            <circle cx="132" cy="96" r="11" fill="var(--warn)"/>
+            <path d="M128 96 l4 4 l7 -9" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="154" y="87" width="72" height="7" rx="3.5" fill="var(--warn)" opacity=".78"/>
+            <rect x="154" y="102" width="52" height="6" rx="3" fill="var(--text-mut)" opacity=".45"/>
+            <g transform="translate(282,50)">
+              <circle r="22" fill="var(--brand)"/>
+              <path d="M-10 -2 L12 -11 L6 12 L-1 5 L-6 10 L-4 3Z" fill="#fff"/>
+            </g>
+          </svg>
+        </span>
+        <span class="ptag">进阶 · Telegram 控制</span>
+        <h3>我是进阶用户 🤖</h3>
+        <p>完整安装代理和手机配置，再用 Telegram 菜单切换、增加、删除地点或恢复真实定位。</p>
+        <span class="go">看完整进阶教程 →</span>
       </a>
 
       <a class="path-big path-big-pro" href="/advanced.html">
@@ -176,9 +199,9 @@
     </figure>
     <div class="steps">
       <div class="step"><h3>手机全隧道连接落地机</h3><div class="step-body"><p>客户端用 VLESS + REALITY + Vision 连到落地机，开启全局 TUN/VPN，让系统级流量（含定位服务）都进隧道。</p></div></div>
-      <div class="step"><h3>落地机按域名分流</h3><div class="step-body"><p>Xray 只把 <span class="code-inline">gs-loc.apple.com</span>、<span class="code-inline">gs-loc-cn.apple.com</span>、<span class="code-inline">gspe85…-ssl.ls.apple.com</span> 这几个定位域名送进回环拦截器，其余流量原样直连。定位域名的 UDP/443 被丢弃以促使 QUIC 回退 TCP。</p></div></div>
-      <div class="step"><h3>拦截器改写坐标</h3><div class="step-body"><p>拦截器用手机信任的叶证书终止内层 TLS，向真实 Apple 源站重新取回响应，把其中的坐标整体平移到目标城市内的随机点（保留一批 AP/基站之间的相对几何关系），再返回手机。</p></div></div>
-      <div class="step"><h3>随机中心、稳定响应</h3><div class="step-body"><p>每次安装或执行 <span class="code-inline">hle relocate</span> 会在出口 IP 城市内重新抽点；普通地点在中心 8 米内平滑微漂移。南极昆仑站关闭漂移，并针对稀疏 no-fix 与 WifiTile 404 使用有界内存恢复链，避免定位反复失效。</p></div></div>
+      <div class="step"><h3>落地机识别定位请求</h3><div class="step-body"><p>只有 Apple 网络定位请求会进入定位修改器，普通网页、App 和其它网络流量仍从落地机正常访问互联网。</p></div></div>
+      <div class="step"><h3>把定位移到目标城市</h3><div class="step-body"><p>定位修改器把结果调整到落地机出口 IP 所在城市内的随机点，再把结果返回手机。</p></div></div>
+      <div class="step"><h3>保持自然稳定</h3><div class="step-body"><p>定位会在设定点附近做轻微、平滑的变化；需要换一个点时可以重新随机选择，无需重装手机配置。</p></div></div>
     </div>
     <p style="text-align:center"><a class="btn btn-ghost" href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">阅读完整架构说明 ↗</a></p>
   </div>
@@ -210,7 +233,7 @@
           <li>可选 VLESS + REALITY 或 SS2022</li>
           <li>低权限 Bot，不监听公网端口</li>
         </ul>
-        <a class="btn btn-primary" href="/telegram.html">看进阶控制教程 →</a>
+        <a class="btn btn-primary" href="/telegram.html">看完整进阶教程 →</a>
       </div>
       <div class="card path-card">
         <span class="tag tag-pro">高级</span>
@@ -241,7 +264,7 @@
       <div class="card"><div class="ic">🧩</div><h4>固定 REALITY 伪装</h4><p style="color:var(--text-soft)">统一使用 <span class="code-inline">www.usc.edu:443</span>，安装时现场校验证书链、公网解析、TLS 1.3 与 HTTP/2，不再随机切换。</p></div>
       <div class="card"><div class="ic">📲</div><h4>自动交付描述文件</h4><p style="color:var(--text-soft)">交互式安装完成后自动启动一次性下载链接和二维码；成功下载一次或 100 分钟后自动关闭。</p></div>
       <div class="card"><div class="ic">🛡️</div><h4>不动 SSH / 防火墙</h4><p style="color:var(--text-soft)">安装器不改 SSH 端口/密钥/密码，也不会主动启用原本关闭的 UFW。</p></div>
-      <div class="card"><div class="ic">🏔️</div><h4>高纬稀疏覆盖恢复</h4><p style="color:var(--text-soft)">对南极等无覆盖区的稀疏 sentinel 与 WifiTile 404 使用有 TTL、有限额的纯内存恢复链；没有可信模板时保留 Apple 原始结果。</p></div>
+      <div class="card"><div class="ic">🤖</div><h4>手机菜单控制</h4><p style="color:var(--text-soft)">进阶模式可直接在 Telegram 菜单里切换地点、增加或删除地点，也能一键恢复真实定位。</p></div>
     </div>
   </div>
 </section>
@@ -279,7 +302,7 @@
       <li>手机原始的 Apple 定位请求仍会转发给 Apple，Apple 仍可能从 Wi-Fi BSSID、蜂窝信息或账号推断真实位置。</li>
       <li>只覆盖 Apple <em>网络</em>定位。不保证覆盖 GPS/GNSS、蓝牙、蜂窝基带、紧急定位、证书固定或 App 自有定位；户外 GPS 会盖过网络定位。</li>
       <li>安装私有 CA 会扩大信任面。项目已删除 CA 私钥、并把路由与叶证书限定到 Apple 定位域名，但你仍需理解并接受该风险。</li>
-      <li>近期 Wi-Fi 身份缓存以单个拦截器进程为边界。不要让互不信任的用户共用同一节点凭据。</li>
+      <li>节点和 Telegram 控制器按单人使用设计，不要把同一套节点凭据分发给互不信任的用户。</li>
       <li>若客户端没有把 UDP、IPv6、硬编码 IP 或系统服务流量纳入全隧道，服务端无法补救这种绕过。</li>
       <li>随机点可能落在城市内的公园、水域或工业区等不适合模拟日常活动的位置。</li>
     </ul>
@@ -300,7 +323,7 @@
       <div class="foot-links">
         <strong style="color:var(--text-soft)">文档</strong>
         <a href="/beginner.html">新手图文教程</a>
-        <a href="/telegram.html">Telegram 进阶控制</a>
+        <a href="/telegram.html">Telegram 进阶教程</a>
         <a href="/advanced.html">高手技术对接</a>
         <a href="/prerequisites.html">前置配置（中转 / 链式）</a>
       </div>
@@ -318,6 +341,6 @@
   </div>
 </footer>
 
-<script src="/assets/site.js?v=3" defer></script>
+<script src="/assets/site.js?v=4" defer></script>
 </body>
 </html>

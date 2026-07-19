@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Telegram 进阶控制 · Home-Location-Endpoint</title>
-<meta name="description" content="Home-Location-Endpoint 进阶模式：用单操作者 Telegram 菜单切换、增加、删除定位，支持 VLESS REALITY 与 SS2022。">
-<link rel="stylesheet" href="/assets/style.css?v=3">
+<title>进阶模式完整教程 · Telegram 控制 · Home-Location-Endpoint</title>
+<meta name="description" content="从服务器安装到 iPhone 验证的完整进阶教程：部署代理端点、安装证书与节点，并用 Telegram 菜单切换、增加、删除地点。">
+<link rel="stylesheet" href="/assets/style.css?v=4">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%233b5bdb' d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z'/%3E%3Ccircle cx='12' cy='9' r='2.6' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -20,7 +20,7 @@
     <div class="nav-links">
       <a href="/">首页</a>
       <a href="/beginner.html">新手教程</a>
-      <a href="/telegram.html">进阶控制</a>
+      <a href="/telegram.html">进阶教程</a>
       <a href="/advanced.html">高手对接</a>
       <a href="/prerequisites.html">前置配置</a>
       <a class="cta" href="https://github.com/Loading886/Home-Location-Endpoint" target="_blank" rel="noopener">GitHub</a>
@@ -28,100 +28,436 @@
   </div>
 </nav>
 
-<header class="hero" style="padding:64px 0 34px">
+<header class="hero" style="padding:64px 0 30px">
   <div class="container">
-    <span class="eyebrow">🤖 进阶模式 · 单操作者 Telegram 菜单</span>
-    <h1>用聊天菜单切换定位</h1>
-    <p class="lead">项目继续替你管理代理、证书与定位路由，同时加入一个低权限 Telegram Bot。切换地点、增加或删除地点、暂停改写，都不需要 SSH，也不用重启代理连接。</p>
+    <span class="eyebrow">🤖 进阶 · 完整安装 · Telegram 控制</span>
+    <h1>进阶模式完整教程</h1>
+    <p class="lead">这是一份独立的完整教程：从准备服务器、安装描述文件和节点，到用 Telegram 菜单切换地点，全程约 20 分钟，不需要先阅读新手页。</p>
   </div>
 </header>
 
 <section class="section-tight">
   <div class="container narrow">
-    <div class="grid grid-3">
-      <div class="card"><div class="ic">📍</div><h4>即时切换</h4><p style="color:var(--text-soft)">点击城市按钮后立即生效，并自动恢复定位改写。</p></div>
-      <div class="card"><div class="ic">➕</div><h4>自管地点</h4><p style="color:var(--text-soft)">菜单内新增、确认、删除地点，最多保存 50 个。</p></div>
-      <div class="card"><div class="ic">🌍</div><h4>还原定位</h4><p style="color:var(--text-soft)">暂停坐标改写，代理与 Apple 请求转发保持在线。</p></div>
+    <div class="callout callout-note"><span class="ico">🧭</span>
+      <p><strong>你将依次完成：</strong>① 准备落地机 → ② 创建 Telegram Bot → ③ 安装进阶模式 → ④ 读懂输出 → ⑤ 下载描述文件 → ⑥ 安装描述文件 → ⑦ 开启完全信任 → ⑧ 导入节点并全局连接 → ⑨ 重启手机 → ⑩ 验证定位 → ⑪ 使用 Telegram 菜单。</p>
     </div>
   </div>
 </section>
 
-<section class="alt">
-  <div class="container narrow">
-    <h2>安装前准备</h2>
-    <ol>
-      <li>在 Telegram 打开 <strong>@BotFather</strong>，创建一个只给本节点使用的新 Bot。</li>
-      <li>向新 Bot 发送一次 <span class="code-inline">/start</span>。</li>
-      <li>准备 Bot Token 和你自己的<strong>数字 Chat ID</strong>。不要复用正在被其他程序轮询的 Bot。</li>
-    </ol>
-    <div class="callout callout-note"><span class="ico">🔒</span><p>本项目使用 Telegram 官方 HTTPS 长轮询，不配置 webhook，也不开放 Bot 入站端口；只有安装时指定的 Chat ID 会被处理。</p></div>
-  </div>
-</section>
+<section class="section-tight">
+ <div class="container narrow">
+  <div class="steps">
 
-<section>
-  <div class="container narrow">
-    <h2>一键安装进阶模式</h2>
-    <p>运行安装器，选择 <span class="kbd">2</span>，再选择 VLESS + REALITY（推荐）或 SS2022。Token 输入不会回显，写入前会先校验 Bot 和 Chat。</p>
-    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
+    <!-- Step 1 -->
+    <div class="step">
+      <h3>准备一台干净的落地机</h3>
+      <div class="step-body">
+        <p>准备一台 <strong>Debian 12/13 或 Ubuntu 22.04/24.04</strong> 的 VPS（amd64 或 arm64 都行，内存 ≥ 384 MiB）。这台机器所在的国家/城市，就是你「假装所在」的位置——想显示在美国，就买一台美国 VPS。</p>
+        <p>用 SSH 以 root（或能 <span class="code-inline">sudo</span> 的用户）登录：</p>
+        <div class="code"><pre><span class="c"># 把 IP 换成你的落地机地址</span>
+ssh root@<span class="s">你的落地机IP</span></pre></div>
+        <div class="callout callout-tip"><span class="ico">✅</span><p>建议用一台<strong>专门</strong>的新机器，不要装在已经跑着别的 Xray/建站的服务器上。</p></div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step">
+      <h3>创建一个专用 Telegram Bot</h3>
+      <div class="step-body">
+        <ol>
+          <li>在 Telegram 打开 <strong>@BotFather</strong>，发送 <span class="code-inline">/newbot</span>，按提示创建一个只给这台服务器使用的新 Bot。</li>
+          <li>保存 BotFather 给你的 <strong>Bot Token</strong>，然后打开刚创建的 Bot，发送一次 <span class="code-inline">/start</span>。</li>
+          <li>准备你自己的<strong>数字 Chat ID</strong>。可以打开 <strong>@userinfobot</strong> 查询；只读取它回复的 ID，不要把 Bot Token 发给任何第三方。</li>
+        </ol>
+        <div class="callout callout-warn"><span class="ico">🔐</span><p>Bot Token 相当于控制密码，只粘贴到你自己的服务器安装器里。不要与其他程序共用这个 Bot，否则它们会争抢消息。</p></div>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="step">
+      <h3>一键安装（选「进阶模式」）</h3>
+      <div class="step-body">
+        <p>在落地机上粘贴下面的命令。安装器询问模式时输入 <span class="kbd">2</span>，再选择代理协议：推荐输入 <span class="kbd">1</span> 使用 VLESS + REALITY；需要兼容 SS2022 时输入 <span class="kbd">2</span>。最后粘贴 Bot Token 和数字 Chat ID。</p>
+        <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
   | sudo bash</pre></div>
-    <p>无人值守安装示例：</p>
-    <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
+        <p>熟悉命令行时也可以无人值守安装：</p>
+        <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/main/install.sh \
   | sudo env \
       HLE_TELEGRAM_BOT_TOKEN=<span class="s">'BOT_TOKEN'</span> \
       HLE_TELEGRAM_CHAT_ID=<span class="s">'NUMERIC_CHAT_ID'</span> \
       bash -s -- <span class="k">--mode</span> advanced <span class="k">--protocol</span> vless-reality <span class="k">--port</span> 443</pre></div>
-    <div class="callout callout-warn"><span class="ico">⚠️</span><p>安装器不支持原地转换模式或协议。已经用 full / modifier-only 安装的机器，不要直接用 advanced 覆盖；需要先按文档安全卸载，再重新安装并更新客户端节点。</p></div>
-  </div>
-</section>
-
-<section class="alt">
-  <div class="container narrow">
-    <h2>菜单怎么用</h2>
-    <p>向 Bot 发送 <span class="code-inline">/menu</span>、<span class="code-inline">/start</span>、<span class="code-inline">/location</span> 或 <span class="code-inline">/status</span> 都会打开定位菜单。</p>
-    <div class="table-wrap"><table>
-      <tr><th>操作</th><th>行为</th></tr>
-      <tr><td>点击城市</td><td>切换为该地点并恢复改写；无需重启服务或重连代理</td></tr>
-      <tr><td>🌍 真实定位</td><td>暂停响应改写；代理和 Apple 请求转发仍保持运行</td></tr>
-      <tr><td>➕ 增加地点</td><td>依次输入短名称、地址和 WGS84 格式的“纬度, 经度”，确认后保存</td></tr>
-      <tr><td>➖ 删除地点</td><td>二次确认后删除非活动地点；活动地点和最后一个地点不能删除</td></tr>
-    </table></div>
-    <p>首次安装会生成出口 IP 城市随机点，并预置洛杉矶、东京、香港、新加坡、吉隆坡、巴黎、法兰克福、Reykjavík 与南极昆仑站。每台服务器的随机点不同，重复安装会保留现有地点库。</p>
-  </div>
-</section>
-
-<section>
-  <div class="container narrow">
-    <h2>南极等高纬地点</h2>
-    <p>昆仑站会在安装时于站点附近生成独立随机中心，但关闭每 120 秒的平滑微漂移，避免高纬稀疏覆盖区反复无定位。v0.2.2 对两类 Apple 响应增加了有界恢复：</p>
-    <ul>
-      <li>纯 no-fix sentinel 批次生成目标点 45 米内的稳定微型坐标簇；稀疏批次只用同一进程近期真实出现的 Wi-Fi 身份补足。</li>
-      <li>WifiTile 404 依次尝试内存完整瓦片、Apple 公共种子和近期真实身份最小瓦片；没有可信模板就保留原始 404。</li>
-    </ul>
-    <div class="callout callout-tip"><span class="ico">🧠</span><p>这些缓存只存在内存，带 TTL 和数量上限，不写入磁盘或普通日志；服务重启后自动清空。</p></div>
-  </div>
-</section>
-
-<section class="alt">
-  <div class="container narrow">
-    <h2>权限与健康检查</h2>
-    <p>Bot 运行在独立的 <span class="code-inline">home-location-bot</span> 低权限账号，不能读取节点 URI、REALITY/SS 凭据、CA 叶私钥或 <span class="code-inline">install.env</span>。地点更新采用原子替换，修改前保留最近 30 份本地备份。</p>
-    <div class="code"><pre>sudo hle status
-sudo hle verify
-sudo systemctl status home-location-telegram-bot --no-pager
-sudo journalctl -u home-location-telegram-bot --since <span class="s">'30 minutes ago'</span> --no-pager</pre></div>
-    <p><span class="code-inline">hle verify</span> 会检查 Bot 最近 180 秒的 API 心跳。Token 被撤销、网络无法访问 Telegram，或同一 Token 被另一个控制器占用时，检查会明确失败。</p>
-    <div class="callout callout-danger"><span class="ico">⛔</span><p>近期 Wi-Fi 身份缓存以单个拦截器进程为边界。不要把同一节点凭据分发给互不信任的用户。</p></div>
-  </div>
-</section>
-
-<section>
-  <div class="container narrow">
-    <h2>协议选择</h2>
-    <div class="grid grid-2">
-      <div class="card"><div class="ic">🛡️</div><h4>VLESS + REALITY + Vision</h4><p style="color:var(--text-soft)">推荐公网新部署；固定 SNI/target 为 <span class="code-inline">www.usc.edu:443</span>，适合前面加 Realm 纯 TCP 中转。</p></div>
-      <div class="card"><div class="ic">🔁</div><h4>SS2022</h4><p style="color:var(--text-soft)">兼容选项，同端口需要 TCP 与 UDP；Realm 只转发 TCP，不能承载 SS2022 原生 UDP。Xray 已提示该实现未来可能弃用。</p></div>
+        <figure class="figure">
+          <svg viewBox="0 0 900 300" role="img" aria-label="终端交互示意">
+            <rect x="0" y="0" width="900" height="300" rx="12" fill="#0f172a"/>
+            <rect x="0" y="0" width="900" height="34" rx="12" fill="#1e293b"/>
+            <rect x="0" y="20" width="900" height="14" fill="#1e293b"/>
+            <circle cx="22" cy="17" r="6" fill="#ff5f56"/><circle cx="44" cy="17" r="6" fill="#ffbd2e"/><circle cx="66" cy="17" r="6" fill="#27c93f"/>
+            <text x="450" y="22" text-anchor="middle" font-size="12" fill="#94a3b8" font-family="monospace">root@landing: ~</text>
+            <g font-family="monospace" font-size="14.5">
+              <text x="22" y="66" fill="#63e6be"># curl … | sudo bash</text>
+              <text x="22" y="102" fill="#e2e8f0">Choose an installation mode:</text>
+              <text x="22" y="124" fill="#91a7ff">  1) Full proxy endpoint + location modifier (recommended)</text>
+              <text x="22" y="146" fill="#cbd5e1">  2) Proxy endpoint + Telegram controller (advanced)</text>
+              <text x="22" y="168" fill="#cbd5e1">  3) Location modifier only (expert)</text>
+              <text x="22" y="194" fill="#e2e8f0">Selection [1]: <tspan fill="#ffd43b">2</tspan></text>
+              <text x="22" y="224" fill="#e2e8f0">Protocol [1]: <tspan fill="#ffd43b">1</tspan></text>
+              <text x="22" y="246" fill="#94a3b8">==&gt; Validating Telegram bot and authorized chat …</text>
+              <text x="22" y="276" fill="#63e6be">Home-Location-Endpoint is ready in advanced mode.</text>
+            </g>
+          </svg>
+          <figcaption>输入 2 选进阶模式；协议默认选择 1。看到「ready in advanced mode」即安装成功。</figcaption>
+        </figure>
+      </div>
     </div>
-    <div class="callout callout-note" style="margin-top:24px"><span class="ico">➡️</span><p>需要 Realm 前置、NAT 双 IP 或客户端链式代理？继续查看 <a href="/prerequisites.html"><strong>前置配置指引</strong></a>。</p></div>
+
+    <!-- Step 4 -->
+    <div class="step">
+      <h3>读懂输出：记下节点链接和描述文件</h3>
+      <div class="step-body">
+        <p>安装成功后，屏幕最后会打印节点链接、CA 描述文件和指纹；同时会确认 Telegram 控制器已经启动。</p>
+        <figure class="figure">
+          <svg viewBox="0 0 900 268" role="img" aria-label="安装输出关键三处">
+            <rect x="0" y="0" width="900" height="268" rx="12" fill="#0f172a"/>
+            <g font-family="monospace" font-size="14">
+              <text x="22" y="40" fill="#63e6be">Home-Location-Endpoint is ready in advanced mode.</text>
+              <text x="22" y="72" fill="#e2e8f0">Random location city: <tspan fill="#ffd43b">Santa Clara, US</tspan></text>
+              <text x="22" y="104" fill="#e2e8f0">Node URI:</text>
+              <text x="22" y="126" fill="#91a7ff">vless://bc73…@203.0.113.7:443?…#Home-Location-Endpoint</text>
+              <text x="22" y="170" fill="#e2e8f0">iOS CA profile:</text>
+              <text x="22" y="192" fill="#91a7ff">/etc/home-location-endpoint/Home-Location-Endpoint-CA.mobileconfig</text>
+              <text x="22" y="228" fill="#e2e8f0">CA SHA-256: <tspan fill="#ffa8a8">12:CC:44:03:F1:DB:…:4C:0E</tspan></text>
+            </g>
+            <g font-family="var(--font)" font-size="12.5" font-weight="700">
+              <rect x="560" y="112" width="150" height="26" rx="6" fill="#1e3a8a" opacity=".0"/>
+              <text x="700" y="126" fill="#5c7cfa">① 节点链接 → 导入客户端</text>
+              <text x="700" y="192" fill="#5c7cfa">② 描述文件 → 装进 iPhone</text>
+              <text x="700" y="228" fill="#ffa8a8">③ 指纹 → 装描述文件时核对</text>
+            </g>
+          </svg>
+          <figcaption>①节点链接　②CA 描述文件路径　③CA 的 SHA-256 指纹</figcaption>
+        </figure>
+        <p>随时可以再看这两样：</p>
+        <div class="code"><pre><span class="c"># 再次打印节点链接</span>
+sudo hle show-link
+<span class="c"># 打印描述文件所在路径</span>
+sudo hle profile</pre></div>
+      </div>
+    </div>
+
+    <!-- Step 5 -->
+    <div class="step">
+      <h3>用一次性令牌链接把描述文件下载到 iPhone</h3>
+      <div class="step-body">
+        <p>不用手动传文件。交互式安装成功后，安装器会<strong>自动</strong>生成一个带随机令牌的临时下载地址，并在终端打印二维码。保持当前终端打开，直接扫码或打开链接即可。</p>
+        <p>如果你按了 <span class="kbd">Ctrl+C</span>、链接过期，或者以后需要重新下载，再手动运行：</p>
+        <div class="code"><pre>sudo hle profile serve</pre></div>
+        <div class="callout callout-warn"><span class="ico">⏳</span>
+          <p><strong>阅后即焚：</strong>下载链接默认<strong>有效 100 分钟</strong>，并且<strong>只要成功下载一次就立即失效</strong>、下载服务自动关闭。过期或用完了，再跑一次 <span class="code-inline">sudo hle profile serve</span> 重新生成即可。</p>
+        </div>
+        <figure class="figure">
+          <svg viewBox="0 0 900 320" role="img" aria-label="hle profile serve 终端输出与二维码">
+            <rect x="0" y="0" width="900" height="320" rx="12" fill="#0f172a"/>
+            <rect x="0" y="0" width="900" height="34" rx="12" fill="#1e293b"/>
+            <rect x="0" y="20" width="900" height="14" fill="#1e293b"/>
+            <circle cx="22" cy="17" r="6" fill="#ff5f56"/><circle cx="44" cy="17" r="6" fill="#ffbd2e"/><circle cx="66" cy="17" r="6" fill="#27c93f"/>
+            <text x="450" y="22" text-anchor="middle" font-size="12" fill="#94a3b8" font-family="monospace">root@landing: ~</text>
+            <g font-family="monospace" font-size="13">
+              <text x="22" y="64" fill="#63e6be">安装完成后自动启动 hle profile serve</text>
+              <text x="22" y="92" fill="#e2e8f0">临时 CA 描述文件下载</text>
+              <text x="22" y="116" fill="#91a7ff">下载地址: <tspan fill="#7dd3fc">http://203.0.113.7:18080/Xk7Rf9q…/CA.mobileconfig</tspan></text>
+              <text x="22" y="140" fill="#91a7ff">有效时间: <tspan fill="#ffd43b">100 分钟</tspan></text>
+              <text x="22" y="164" fill="#91a7ff">下载次数: <tspan fill="#ffd43b">1</tspan></text>
+              <text x="22" y="188" fill="#91a7ff">CA 指纹 : <tspan fill="#ffa8a8">12:CC:44:03:…:4C:0E</tspan></text>
+              <text x="22" y="216" fill="#94a3b8">请临时确保 TCP 18080 可以到达本机。</text>
+              <text x="22" y="244" fill="#63e6be">正在等待一次成功下载……</text>
+            </g>
+            <!-- stylized QR -->
+            <g transform="translate(690,66)">
+              <rect x="0" y="0" width="176" height="176" rx="8" fill="#ffffff"/>
+              <g fill="#0f172a">
+                <path d="M12 12 h44 v44 h-44 Z M20 20 v28 h28 v-28 Z M28 28 h12 v12 h-12 Z"/>
+                <path d="M120 12 h44 v44 h-44 Z M128 20 v28 h28 v-28 Z M136 28 h12 v12 h-12 Z"/>
+                <path d="M12 120 h44 v44 h-44 Z M20 128 v28 h28 v-28 Z M28 136 h12 v12 h-12 Z"/>
+                <rect x="64" y="16" width="8" height="8"/><rect x="80" y="16" width="8" height="8"/><rect x="104" y="24" width="8" height="8"/>
+                <rect x="64" y="32" width="8" height="8"/><rect x="96" y="40" width="8" height="8"/><rect x="112" y="48" width="8" height="8"/>
+                <rect x="16" y="64" width="8" height="8"/><rect x="32" y="72" width="8" height="8"/><rect x="48" y="64" width="8" height="8"/>
+                <rect x="64" y="64" width="8" height="8"/><rect x="80" y="72" width="8" height="8"/><rect x="96" y="64" width="8" height="8"/>
+                <rect x="112" y="72" width="8" height="8"/><rect x="128" y="64" width="8" height="8"/><rect x="152" y="72" width="8" height="8"/>
+                <rect x="64" y="88" width="8" height="8"/><rect x="88" y="96" width="8" height="8"/><rect x="120" y="88" width="8" height="8"/><rect x="144" y="96" width="8" height="8"/>
+                <rect x="16" y="104" width="8" height="8"/><rect x="40" y="104" width="8" height="8"/><rect x="72" y="112" width="8" height="8"/><rect x="104" y="104" width="8" height="8"/><rect x="136" y="112" width="8" height="8"/><rect x="160" y="104" width="8" height="8"/>
+                <rect x="64" y="120" width="8" height="8"/><rect x="88" y="128" width="8" height="8"/><rect x="104" y="120" width="8" height="8"/><rect x="128" y="128" width="8" height="8"/><rect x="152" y="120" width="8" height="8"/>
+                <rect x="72" y="144" width="8" height="8"/><rect x="96" y="152" width="8" height="8"/><rect x="120" y="144" width="8" height="8"/><rect x="144" y="152" width="8" height="8"/><rect x="160" y="144" width="8" height="8"/>
+                <rect x="80" y="160" width="8" height="8"/><rect x="112" y="160" width="8" height="8"/><rect x="136" y="160" width="8" height="8"/>
+              </g>
+            </g>
+            <text x="778" y="262" text-anchor="middle" font-size="12" fill="#94a3b8" font-family="monospace">iPhone 相机扫码</text>
+          </svg>
+          <figcaption>安装完成后，终端自动给出临时下载地址 + 二维码、CA 指纹、有效期与「下载次数：1」。</figcaption>
+        </figure>
+        <p>然后在 iPhone 上，二选一：</p>
+        <ul>
+          <li><strong>扫码</strong>：用 iPhone 自带「相机」对准终端里的二维码，点弹出的横幅。</li>
+          <li><strong>打开链接</strong>：用 <strong>Safari</strong> 打开终端输出的那个 <span class="code-inline">http://…:18080/…</span> 下载地址。</li>
+        </ul>
+        <p>用 <strong>Safari</strong> 打开通常最顺：会直接提示「此网站正尝试下载一个配置描述文件」，点<strong>允许</strong>，随后到设置里安装（下一步）。</p>
+        <div class="callout callout-note"><span class="ico">📂</span>
+          <p><strong>如果下载后没有直接弹出安装</strong>（用夸克 / QQ 等第三方浏览器扫码时很常见）：文件会先被存到浏览器的「下载 / 暂存」或「文件」App，<strong>不会</strong>自己打开。这时——到「文件」App 找到刚下载的 <strong>Home-Location-Endpoint-CA</strong>（约 2&nbsp;KB）→ 点它 → 在弹出的「选择设备 / Choose a Device」里点 <strong>iPhone</strong> →系统才会跳到「设置」里安装（下一步）。若只弹出分享菜单，选 <strong>存到文件</strong> 或 <strong>在 iPhone 上打开</strong> 再从「文件」里点开即可。</p>
+        </div>
+        <figure class="figure">
+          <svg viewBox="0 0 320 600" role="img" aria-label="下载后在文件里打开并选择 iPhone" style="max-width:290px">
+            <rect x="6" y="6" width="308" height="588" rx="44" fill="#0b1220" stroke="var(--border-strong)" stroke-width="3"/>
+            <rect x="16" y="16" width="288" height="568" rx="34" fill="#000000"/>
+            <rect x="122" y="16" width="76" height="22" rx="11" fill="#0b1220"/>
+            <!-- file manager top -->
+            <rect x="28" y="52" width="96" height="34" rx="13" fill="#1c1c1e"/>
+            <text x="46" y="74" font-size="14" fill="#0a84ff">‹ Search</text>
+            <text x="160" y="74" font-size="14" fill="#fff" text-anchor="middle" font-weight="700">暂存 ⌄</text>
+            <circle cx="284" cy="69" r="17" fill="#1c1c1e"/><text x="284" y="74" font-size="15" fill="#fff" text-anchor="middle">⋯</text>
+            <rect x="28" y="98" width="264" height="34" rx="10" fill="#1c1c1e"/>
+            <text x="46" y="120" font-size="13" fill="#8e8e93">🔍  Search</text>
+            <!-- file row (highlighted) -->
+            <rect x="20" y="146" width="280" height="56" fill="#2c2c2e"/>
+            <rect x="34" y="156" width="30" height="38" rx="4" fill="#fff"/>
+            <g stroke="#c7c7cc" stroke-width="1.4"><line x1="39" y1="164" x2="59" y2="164"/><line x1="39" y1="170" x2="59" y2="170"/><line x1="39" y1="176" x2="55" y2="176"/><line x1="39" y1="182" x2="59" y2="182"/></g>
+            <text x="76" y="172" font-size="14.5" fill="#fff" font-weight="600">Home-Location-Endpoint-CA</text>
+            <text x="76" y="192" font-size="12" fill="#8e8e93">02:59 · 2 KB</text>
+            <text x="284" y="176" font-size="16" fill="#0a84ff" text-anchor="end">👆</text>
+            <!-- Choose a Device dialog -->
+            <rect x="30" y="300" width="260" height="252" rx="20" fill="#1c1c1e"/>
+            <text x="52" y="340" font-size="18" fill="#fff" font-weight="800">Choose a Device</text>
+            <text x="52" y="366" font-size="12.5" fill="#aeaeb2">On which device would you like</text>
+            <text x="52" y="384" font-size="12.5" fill="#aeaeb2">to install this profile?</text>
+            <rect x="46" y="400" width="228" height="42" rx="11" fill="#3a3a3c"/>
+            <text x="160" y="427" font-size="15" fill="#fff" text-anchor="middle" font-weight="700">iPhone</text>
+            <rect x="46" y="450" width="228" height="42" rx="11" fill="#3a3a3c"/>
+            <text x="160" y="477" font-size="15" fill="#fff" text-anchor="middle">Other Devices…</text>
+            <rect x="46" y="500" width="228" height="42" rx="11" fill="#0a84ff"/>
+            <text x="160" y="527" font-size="15" fill="#fff" text-anchor="middle" font-weight="700">Cancel</text>
+          </svg>
+          <figcaption>第三方浏览器下载后：在「文件」里点开该文件 → 选 iPhone → 才会进入设置安装。用 Safari 则一般会直接提示安装。</figcaption>
+        </figure>
+        <div class="callout callout-note"><span class="ico">🔎</span><p><strong>核对指纹：</strong>终端打印的 CA SHA-256 指纹，应与下一步安装描述文件时看到的一致。</p></div>
+        <div class="callout callout-warn"><span class="ico">📡</span>
+          <p><strong>让手机能连到这个端口：</strong>该临时下载是 <strong>HTTP 明文</strong>，默认端口 <span class="code-inline">18080</span>。需要临时确保 TCP 18080 能从手机到达落地机（在云安全组/防火墙里临时放行，用完就关）——安装器不会自动改防火墙。若落地机在 NAT 后、用了 Realm 前置、或是仅定位模式没记录手机可达地址，请加参数 <span class="code-inline">--host 手机可访问的地址</span>。</p>
+        </div>
+        <p>想要更强的传输保护，可改用 SCP / SFTP 或自建可信 HTTPS。可调参数还有 <span class="code-inline">--port</span>、<span class="code-inline">--host</span>、<span class="code-inline">--bind</span>、<span class="code-inline">--timeout-minutes</span>、<span class="code-inline">--no-qr</span>。</p>
+      </div>
+    </div>
+
+    <!-- Step 6 -->
+    <div class="step">
+      <h3>在 iPhone 上安装描述文件</h3>
+      <div class="step-body">
+        <p>拿到文件后，iPhone 会提示「已下载描述文件」。打开 <strong>设置</strong> → 顶部会出现「已下载描述文件」（或到 <strong>设置 → 通用 → VPN 与设备管理</strong>）→ 点开它 → 右上角<strong>安装</strong>，按提示输入锁屏密码并再次确认安装。</p>
+        <figure class="figure">
+          <svg viewBox="0 0 320 600" role="img" aria-label="iOS 安装描述文件界面" style="max-width:290px">
+            <rect x="6" y="6" width="308" height="588" rx="44" fill="#0b1220" stroke="var(--border-strong)" stroke-width="3"/>
+            <rect x="16" y="16" width="288" height="568" rx="34" fill="#f2f2f7"/>
+            <rect x="122" y="16" width="76" height="22" rx="11" fill="#0b1220"/>
+            <text x="38" y="58" font-size="13" fill="#111" font-weight="700">9:41</text>
+            <text x="288" y="58" font-size="12" fill="#111" text-anchor="end">📶 🔋</text>
+            <!-- nav -->
+            <text x="30" y="96" font-size="15" fill="#007aff">‹ 通用</text>
+            <text x="150" y="126" font-size="18" fill="#111" text-anchor="middle" font-weight="800">安装描述文件</text>
+            <rect x="242" y="106" width="52" height="28" rx="8" fill="#007aff"/>
+            <text x="268" y="125" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">安装</text>
+            <!-- profile card -->
+            <rect x="20" y="152" width="280" height="88" fill="#fff"/>
+            <line x1="20" y1="152" x2="300" y2="152" stroke="#d1d1d6"/>
+            <line x1="20" y1="240" x2="300" y2="240" stroke="#d1d1d6"/>
+            <circle cx="46" cy="196" r="15" fill="#3b5bdb"/>
+            <text x="46" y="202" font-size="15" fill="#fff" text-anchor="middle">📍</text>
+            <text x="70" y="190" font-size="13" fill="#111" font-weight="700">Home Location Endpoint CA</text>
+            <text x="70" y="210" font-size="11.5" fill="#8e8e93">签名者　未验证</text>
+            <text x="70" y="227" font-size="11.5" fill="#8e8e93">包含　证书</text>
+            <!-- desc -->
+            <text x="26" y="270" font-size="11" fill="#8e8e93">描述</text>
+            <text x="26" y="291" font-size="12" fill="#333">安装用于改写受限 Apple 网络定位</text>
+            <text x="26" y="309" font-size="12" fill="#333">响应的私有 CA。</text>
+            <text x="26" y="340" font-size="11" fill="#8e8e93">证书</text>
+            <rect x="20" y="348" width="280" height="42" fill="#fff"/>
+            <line x1="20" y1="348" x2="300" y2="348" stroke="#d1d1d6"/>
+            <line x1="20" y1="390" x2="300" y2="390" stroke="#d1d1d6"/>
+            <text x="26" y="374" font-size="12" fill="#111" font-weight="600">Home Location Endpoint Root CA</text>
+            <!-- hint -->
+            <text x="160" y="474" font-size="12" fill="#8e8e93" text-anchor="middle">点右上角「安装」，输入锁屏密码</text>
+            <text x="160" y="494" font-size="12" fill="#8e8e93" text-anchor="middle">并在弹窗中再次确认安装</text>
+          </svg>
+          <figcaption>设置 → 通用 → VPN 与设备管理 → 打开该描述文件 → 右上角「安装」。</figcaption>
+        </figure>
+        <div class="callout callout-note"><span class="ico">🔎</span><p><strong>核对指纹（可选但推荐）：</strong>安装页可查看证书详情，其 SHA-256 应与安装输出的第 ③ 处一致，确认没被中途替换。</p></div>
+      </div>
+    </div>
+
+    <!-- Step 7 -->
+    <div class="step">
+      <h3>开启对该 CA 的「完全信任」</h3>
+      <div class="step-body">
+        <p>装好描述文件后，还要手动打开完全信任，证书才会真正生效：进入 <strong>设置 → 通用 → 关于本机 → 证书信任设置</strong>，把 <strong>Home Location Endpoint Root CA</strong> 的开关打开。</p>
+        <figure class="figure">
+          <svg viewBox="0 0 320 430" role="img" aria-label="iOS 证书信任设置" style="max-width:290px">
+            <rect x="6" y="6" width="308" height="418" rx="30" fill="#0b1220" stroke="var(--border-strong)" stroke-width="3"/>
+            <rect x="16" y="16" width="288" height="398" rx="22" fill="#f2f2f7"/>
+            <text x="30" y="52" font-size="14" fill="#007aff">‹ 关于本机</text>
+            <text x="160" y="86" font-size="16.5" fill="#111" text-anchor="middle" font-weight="800">证书信任设置</text>
+            <text x="26" y="128" font-size="11" fill="#8e8e93">针对根证书启用完全信任</text>
+            <rect x="20" y="138" width="280" height="52" fill="#fff"/>
+            <line x1="20" y1="138" x2="300" y2="138" stroke="#d1d1d6"/>
+            <line x1="20" y1="190" x2="300" y2="190" stroke="#d1d1d6"/>
+            <text x="28" y="169" font-size="11.5" fill="#111" font-weight="600">Home Location Endpoint Root CA</text>
+            <!-- toggle ON -->
+            <rect x="250" y="151" width="44" height="26" rx="13" fill="#34c759"/>
+            <circle cx="281" cy="164" r="11" fill="#fff"/>
+            <text x="26" y="224" font-size="11.5" fill="#8e8e93">对根证书启用完全信任后，</text>
+            <text x="26" y="242" font-size="11.5" fill="#8e8e93">该证书可用于所在设备。</text>
+            <g transform="translate(160,312)">
+              <circle cx="0" cy="0" r="24" fill="#34c759"/>
+              <path d="M-10 0 l6 8 l14 -17" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+            <text x="160" y="366" font-size="12.5" fill="#8e8e93" text-anchor="middle">开关变绿 = 完全信任已开启</text>
+          </svg>
+          <figcaption>设置 → 通用 → 关于本机 → 证书信任设置 → 打开该 CA 的开关。</figcaption>
+        </figure>
+        <div class="callout callout-warn"><span class="ico">⚠️</span><p>不开这个开关，定位改写会因证书不受信任而失败。这是最容易漏的一步。</p></div>
+      </div>
+    </div>
+
+    <!-- Step 8 -->
+    <div class="step">
+      <h3>把节点导入客户端，并用「全局模式」连接</h3>
+      <div class="step-body">
+        <p>复制安装输出里的节点链接（第 ① 处，或用 <span class="code-inline">sudo hle show-link</span> 再打印），在兼容对应协议的 iOS 客户端里「从剪贴板导入」。选择 VLESS 时客户端需支持 <strong>REALITY + Vision</strong>；选择 SS2022 时需支持 <strong>2022-blake3-aes-256-gcm</strong>。连接时务必使用 <strong>全局 / Global（全隧道 TUN）</strong>模式。</p>
+        <figure class="figure">
+          <svg viewBox="0 0 300 430" role="img" aria-label="客户端连接示意" style="max-width:280px">
+            <rect x="6" y="6" width="288" height="418" rx="30" fill="#0b1220" stroke="var(--border-strong)" stroke-width="3"/>
+            <rect x="16" y="16" width="268" height="388" rx="22" fill="#0e1626"/>
+            <text x="150" y="54" font-size="16" fill="#e6e9ef" text-anchor="middle" font-weight="800">代理客户端</text>
+            <!-- node card -->
+            <rect x="28" y="76" width="244" height="70" rx="14" fill="#16203a" stroke="#2a3a5f"/>
+            <circle cx="58" cy="111" r="14" fill="#3b5bdb"/><text x="58" y="117" font-size="14" text-anchor="middle">📍</text>
+            <text x="82" y="106" font-size="13.5" fill="#e6e9ef" font-weight="700">Home-Location-Endpoint</text>
+            <text x="82" y="126" font-size="11" fill="#8b98b5">VLESS / SS2022 · 24ms</text>
+            <text x="256" y="116" font-size="14" fill="#38d9a9" text-anchor="end">✓</text>
+            <!-- mode -->
+            <text x="34" y="176" font-size="11.5" fill="#8b98b5">路由模式</text>
+            <rect x="28" y="184" width="244" height="40" rx="10" fill="#16203a" stroke="#2a3a5f"/>
+            <rect x="34" y="189" width="118" height="30" rx="7" fill="#3b5bdb"/>
+            <text x="93" y="209" font-size="12.5" fill="#fff" text-anchor="middle" font-weight="700">全局 Global</text>
+            <text x="212" y="209" font-size="12.5" fill="#8b98b5" text-anchor="middle">规则 Rule</text>
+            <!-- big connect -->
+            <circle cx="150" cy="300" r="46" fill="#0ca678" opacity=".16"/>
+            <circle cx="150" cy="300" r="34" fill="#12b886"/>
+            <text x="150" y="306" font-size="15" fill="#04110c" text-anchor="middle" font-weight="800">已连接</text>
+            <text x="150" y="372" font-size="12.5" fill="#8b98b5" text-anchor="middle">开启全局后，系统定位流量也走隧道</text>
+          </svg>
+          <figcaption>导入节点 → 选「全局 / Global」→ 连接。示意界面，实际以你所用客户端为准。</figcaption>
+        </figure>
+        <div class="callout callout-note"><span class="ico">📶</span><p>只装 CA、或只让浏览器走代理都<strong>不够</strong>。必须全局隧道，才能让 iOS 的定位请求经过落地机。</p></div>
+      </div>
+    </div>
+
+    <!-- Step 9: restart -->
+    <div class="step">
+      <h3>重启一次 iPhone</h3>
+      <div class="step-body">
+        <p>描述文件装好、完全信任打开、节点也连上之后，<strong>把手机重启一次</strong>。重启能让系统定位服务干净地按新的证书信任与隧道路由生效，避免「装好了但定位没变」的中间状态。</p>
+        <div class="callout callout-tip"><span class="ico">🔁</span><p>关机再开机即可。开机后确认代理客户端仍是<strong>全局</strong>连接、描述文件与完全信任都还在。</p></div>
+      </div>
+    </div>
+
+    <!-- Step 10 -->
+    <div class="step">
+      <h3>验证定位已经改变</h3>
+      <div class="step-body">
+        <p>验证前，先进入 <strong>设置 → 隐私与安全性 → 定位服务</strong>，关闭顶部的「定位服务」，等待 5 秒后再重新打开，让系统重新请求定位结果。然后保持在<strong>室内</strong>（避免 GPS 盖过网络定位），把 Wi-Fi 打开着，打开「地图」App 点定位按钮。定位应落在你落地机所在的城市。</p>
+        <figure class="figure">
+          <svg viewBox="0 0 520 260" role="img" aria-label="地图定位改变示意">
+            <rect x="0" y="0" width="520" height="260" rx="14" fill="#e8efe6"/>
+            <g stroke="#cdd8c9" stroke-width="1.5">
+              <line x1="0" y1="70" x2="520" y2="70"/><line x1="0" y1="140" x2="520" y2="140"/><line x1="0" y1="210" x2="520" y2="210"/>
+              <line x1="130" y1="0" x2="130" y2="260"/><line x1="260" y1="0" x2="260" y2="260"/><line x1="390" y1="0" x2="390" y2="260"/>
+            </g>
+            <path d="M0 110 Q 140 90 260 130 T 520 120" fill="none" stroke="#9ec6ef" stroke-width="10" opacity=".7"/>
+            <rect x="70" y="150" width="60" height="40" fill="#d7e0d2"/><rect x="300" y="40" width="70" height="46" fill="#d7e0d2"/>
+            <circle cx="300" cy="150" r="26" fill="#3b5bdb" opacity=".16"/>
+            <path d="M300 128 a14 14 0 1 0 .1 0 M300 156 l-9 14 a1 1 0 0 0 18 0 Z" fill="#e03131"/>
+            <circle cx="300" cy="142" r="5.5" fill="#fff"/>
+            <rect x="196" y="196" width="208" height="34" rx="9" fill="#fff" stroke="#d1d1d6"/>
+            <text x="300" y="218" font-size="14" fill="#111" text-anchor="middle" font-weight="700">📍 Santa Clara, CA</text>
+          </svg>
+          <figcaption>网络定位落在落地机所在城市。若显示真实位置或「无定位」，见下方常见问题。</figcaption>
+        </figure>
+        <div class="callout callout-tip"><span class="ico">🤖</span><p>定位成功后，打开 Telegram Bot 发送 <span class="code-inline">/menu</span>，即可从菜单切换到其他地点，无需重装、无需重连。</p></div>
+      </div>
+    </div>
+
+  </div>
+ </div>
+</section>
+
+<!-- Telegram control -->
+<section class="alt" id="telegram-control">
+  <div class="container narrow">
+    <h2>⑪ 使用 Telegram 菜单</h2>
+    <p class="sec-sub">安装完成后，向你的 Bot 发送 <span class="code-inline">/menu</span>、<span class="code-inline">/start</span>、<span class="code-inline">/location</span> 或 <span class="code-inline">/status</span>，都会打开同一个定位控制菜单。</p>
+    <div class="grid grid-2">
+      <div class="card"><div class="ic">📍</div><h4>切换地点</h4><p style="color:var(--text-soft)">点击任意地点按钮，新的定位会立即生效，不需要重启服务或重新连接节点。</p></div>
+      <div class="card"><div class="ic">🌍</div><h4>恢复真实定位</h4><p style="color:var(--text-soft)">点击“真实定位”会暂停改写，但代理仍保持连接；再次选择地点即可恢复。</p></div>
+      <div class="card"><div class="ic">➕</div><h4>增加地点</h4><p style="color:var(--text-soft)">按菜单提示输入名称、地址和“纬度, 经度”，确认后保存为新的按钮。</p></div>
+      <div class="card"><div class="ic">➖</div><h4>删除地点</h4><p style="color:var(--text-soft)">选择不再需要的地点并二次确认。当前正在使用的地点不会被误删。</p></div>
+    </div>
+    <div class="callout callout-note" style="margin-top:24px"><span class="ico">💡</span><p>进阶模式内置多个常用地点，并会保留你后来增加的地点。重复运行同一模式的安装器不会清空地点菜单。</p></div>
+    <div class="callout callout-warn"><span class="ico">🔐</span><p>只有安装时填写的 Chat ID 能控制这台服务器。Bot 不需要开放公网入站端口；仍请妥善保管 Bot Token，不要把同一个 Bot 交给其他控制程序。</p></div>
+  </div>
+</section>
+
+<!-- ops commands -->
+<section>
+  <div class="container narrow">
+    <h2>常用运维命令</h2>
+    <p class="sec-sub">都在落地机上运行，需要 root（前面加 <span class="code-inline">sudo</span>）。</p>
+    <div class="table-wrap"><table>
+      <tr><th>命令</th><th>作用</th></tr>
+      <tr><td><span class="code-inline">sudo hle status</span></td><td>查看当前城市、坐标、定位修改状态与服务运行状态</td></tr>
+      <tr><td><span class="code-inline">sudo hle pause</span></td><td>暂停坐标改写，保持代理正常并返回 Apple 原始定位响应</td></tr>
+      <tr><td><span class="code-inline">sudo hle resume</span></td><td>恢复坐标改写，无需重启服务或重新连接节点</td></tr>
+      <tr><td><span class="code-inline">sudo hle verify</span></td><td>本地完整性自检（证书、权限、监听、服务等）</td></tr>
+      <tr><td><span class="code-inline">sudo hle show-link</span></td><td>再次打印 VLESS 节点链接</td></tr>
+      <tr><td><span class="code-inline">sudo hle profile</span></td><td>打印 CA 描述文件路径</td></tr>
+      <tr><td><span class="code-inline">sudo hle profile serve</span></td><td>生成一次性令牌链接 + 二维码把描述文件下到手机（100 分钟、下载一次即失效）</td></tr>
+      <tr><td><span class="code-inline">Telegram /menu</span></td><td>打开地点菜单，切换、增加、删除地点或恢复真实定位</td></tr>
+      <tr><td><span class="code-inline">sudo systemctl status home-location-telegram-bot</span></td><td>检查 Telegram 控制器是否正常运行</td></tr>
+      <tr><td><span class="code-inline">sudo hle uninstall</span></td><td>停服务并删除本项目安装的全部文件、证书与账户（加 <span class="code-inline">--yes</span> 免确认）</td></tr>
+    </table></div>
+    <p>不用了想彻底删除时，在落地机上运行 <span class="code-inline">sudo hle uninstall</span> 即可；装到手机上的描述文件也记得从手机移除。</p>
+    <div class="callout callout-note"><span class="ico">⏸️</span><p><strong>只想临时还原真实定位？</strong>优先点击 Bot 菜单里的“真实定位”。也可以在服务器运行 <span class="code-inline">sudo hle pause</span>，需要恢复时运行 <span class="code-inline">sudo hle resume</span>。</p></div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq" class="anchor">
+  <div class="container narrow">
+    <h2>常见问题</h2>
+
+    <h3>普通网页能上，但定位没变？</h3>
+    <p>先<strong>重启一次手机</strong>（第 ⑨ 步，最容易被忽略）。仍不行再检查：① 客户端是<strong>全局 / TUN</strong> 模式；② 第 ⑦ 步的证书信任开关已打开；③ 你在<strong>室内</strong>（户外 GPS 会盖过网络定位）；④ Wi-Fi 保持开启。落地机上运行 <span class="code-inline">sudo hle status</span> 查看服务状态。</p>
+
+    <h3>节点链接连不上？</h3>
+    <p>如果落地机在 NAT 后、入口和出口 IP 不同、或你前面还有中转机，安装时检测到的地址可能不对。用 <span class="code-inline">--server 你的入口地址</span> 重新安装，并检查云厂商<strong>安全组</strong>是否放行了对应端口。详见<a href="/prerequisites.html">前置配置</a>。</p>
+
+    <h3>描述文件装不上 / 提示未验证？</h3>
+    <p>「未验证」是正常的（自签 CA）。关键是装好后到<strong>证书信任设置</strong>里把开关打开。若 iOS 版本较新，安装入口在 <strong>设置 → 通用 → VPN 与设备管理</strong>。</p>
+
+    <h3>定位在真假之间来回跳？</h3>
+    <p>一些 App 会综合多种信号（GPS、蓝牙、账号、IP）。本项目只改写 Apple <em>网络</em>定位，无法覆盖全部信号，结果可能不稳定。这是方案的固有局限，请阅读<a href="/#security">安全与局限</a>。</p>
+
+    <h3>怎样临时停止修改定位，但继续使用代理？</h3>
+    <p>在 Bot 菜单点击“真实定位”。它不会断开代理；需要恢复时，重新选择任意地点即可。</p>
+
+    <h3>Bot 没有回复或菜单不更新？</h3>
+    <p>先向 Bot 重新发送 <span class="code-inline">/start</span>，再在服务器运行 <span class="code-inline">sudo hle verify</span>。仍有问题时检查 Bot Token 是否被撤销、服务器能否访问 Telegram，以及这个 Bot 是否同时被其他程序使用。</p>
+
+    <div class="callout callout-note" style="margin-top:26px"><span class="ico">➡️</span><p>落地机在 NAT 后、入口和出口 IP 不同，或前面需要中转？请继续查看 <a href="/prerequisites.html"><strong>前置配置</strong></a>。</p></div>
   </div>
 </section>
 
@@ -133,25 +469,27 @@ sudo journalctl -u home-location-telegram-bot --since <span class="s">'30 minute
           <svg class="pin" viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>
           Home-Location-Endpoint
         </div>
-        <p>进阶模式仍是单操作者、自托管设计。网站内容对应 v0.2.2。</p>
+        <p>本页包含进阶模式从服务器安装到 Telegram 日常控制的完整流程；图示界面以实际版本为准。</p>
       </div>
       <div class="foot-links">
-        <strong style="color:var(--text-soft)">相关教程</strong>
+        <strong style="color:var(--text-soft)">继续</strong>
         <a href="/beginner.html">新手图文教程</a>
         <a href="/advanced.html">高手技术对接</a>
         <a href="/prerequisites.html">前置配置</a>
+        <a href="/#security">安全与局限</a>
       </div>
       <div class="foot-links">
-        <strong style="color:var(--text-soft)">项目文档</strong>
-        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/ADVANCED.md" target="_blank" rel="noopener">ADVANCED.md</a>
-        <a href="https://github.com/Loading886/Home-Location-Endpoint/releases/tag/v0.2.2" target="_blank" rel="noopener">v0.2.2 Release</a>
-        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/docs/SECURITY-AND-PRIVACY.md" target="_blank" rel="noopener">安全与隐私</a>
+        <strong style="color:var(--text-soft)">项目</strong>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint" target="_blank" rel="noopener">GitHub 仓库</a>
+        <a href="https://github.com/Loading886/Home-Location-Endpoint/blob/main/README.md" target="_blank" rel="noopener">README</a>
       </div>
     </div>
-    <div class="disclaimer">免责声明：本项目与本站点与 Apple Inc. 或 Telegram 无任何关联。请仅在你拥有或获授权的设备与服务器上使用，并遵守当地法律及相关服务条款。</div>
+    <div class="disclaimer">
+      免责声明：本项目与本站点与 Apple Inc. 无任何关联。请仅在你拥有或获授权的设备与服务器上，出于学习、研究与个人隐私目的使用，并遵守当地法律及相关服务条款。不要用于紧急呼叫、Find My、防盗、合规或人身安全场景。
+    </div>
   </div>
 </footer>
 
-<script src="/assets/site.js?v=3" defer></script>
+<script src="/assets/site.js?v=4" defer></script>
 </body>
 </html>
