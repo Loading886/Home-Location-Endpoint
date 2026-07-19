@@ -218,7 +218,7 @@
         <h3>完整代理端点</h3>
         <p style="color:var(--text-soft)">一条命令搞定：自动装好 Xray，生成 VLESS + REALITY + Vision 节点，并接入定位修改器。你只要把节点导入客户端、把描述文件装进手机。</p>
         <ul class="lead-list">
-          <li>固定使用并现场校验 <span class="code-inline">www.usc.edu</span> 作为 REALITY SNI</li>
+          <li>统一管理并现场校验 REALITY SNI/target</li>
           <li>输出一行可直接导入的 VLESS 链接</li>
           <li>支持 amd64 / arm64</li>
         </ul>
@@ -261,7 +261,7 @@
       <div class="card"><div class="ic">🔐</div><h4>私钥即用即删</h4><p style="color:var(--text-soft)">每台落地机生成独立 CA，只签一张叶证书后立即删除 CA 私钥；安装输出 CA 的 SHA-256 供你核对。</p></div>
       <div class="card"><div class="ic">↩️</div><h4>事务化安装</h4><p style="color:var(--text-soft)">安装/升级用互斥锁、预检查与文件级事务；服务或完整性检查失败会恢复到先前受管状态。</p></div>
       <div class="card"><div class="ic">⏸️</div><h4>随时暂停</h4><p style="color:var(--text-soft)"><span class="code-inline">hle pause</span> 暂停坐标改写并返回 Apple 原始定位；<span class="code-inline">hle resume</span> 即时恢复，代理与普通流量不中断。</p></div>
-      <div class="card"><div class="ic">🧩</div><h4>固定 REALITY 伪装</h4><p style="color:var(--text-soft)">统一使用 <span class="code-inline">www.usc.edu:443</span>，安装时现场校验证书链、公网解析、TLS 1.3 与 HTTP/2，不再随机切换。</p></div>
+      <div class="card"><div class="ic">🧩</div><h4>统一 REALITY 配置</h4><p style="color:var(--text-soft)">由安装器统一管理 target，并现场校验证书链、公网解析、TLS 1.3 与 HTTP/2，避免节点参数漂移。</p></div>
       <div class="card"><div class="ic">📲</div><h4>自动交付描述文件</h4><p style="color:var(--text-soft)">交互式安装完成后自动启动一次性下载链接和二维码；成功下载一次或 100 分钟后自动关闭。</p></div>
       <div class="card"><div class="ic">🛡️</div><h4>不动 SSH / 防火墙</h4><p style="color:var(--text-soft)">安装器不改 SSH 端口/密钥/密码，也不会主动启用原本关闭的 UFW。</p></div>
       <div class="card"><div class="ic">🤖</div><h4>手机菜单控制</h4><p style="color:var(--text-soft)">进阶模式可在 Telegram 菜单里切换、增加或删除地点，恢复真实定位，并直接获取节点链接和 CA 描述文件。</p></div>
@@ -280,7 +280,7 @@
         <tr><td>CPU 架构</td><td>完整/进阶模式 amd64 / arm64；仅定位模式不限架构</td></tr>
         <tr><td>内存</td><td>建议 ≥ 384 MiB（低于会警告）</td></tr>
         <tr><td>磁盘</td><td>完整模式 ≥ 200 MiB，仅定位模式 ≥ 50 MiB 根分区可用</td></tr>
-        <tr><td>网络出口</td><td>能访问 GitHub、IP 定位服务、Nominatim、<span class="code-inline">www.usc.edu:443</span> 与 Apple 源站</td></tr>
+        <tr><td>网络出口</td><td>能访问 GitHub、IP 定位服务、Nominatim、REALITY target 与 Apple 源站</td></tr>
         <tr><td>客户端</td><td>支持 REALITY + Vision 的 iOS 客户端（如 Shadowrocket / Stash / sing-box 等），能开全局 TUN</td></tr>
       </table>
     </div>

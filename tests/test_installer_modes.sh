@@ -66,7 +66,7 @@ fi
 
 (
     tls_target_works() {
-        [[ "$1" == "www.usc.edu" && "$2" == "www.usc.edu:443" ]]
+        [[ "$1" == "${REALITY_SNI}" && "$2" == "${REALITY_TARGET}" ]]
     }
     validate_fixed_reality_target >/dev/null
 )

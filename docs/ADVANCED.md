@@ -7,7 +7,7 @@
 
 交互安装选择“进阶模式”，再选择：
 
-- `VLESS + REALITY + Vision`：推荐公网接入，固定 SNI/target 为 `www.usc.edu:443`；
+- `VLESS + REALITY + Vision`：推荐公网接入，SNI/target 由安装器统一管理并现场校验；
 - `SS2022`：使用 `2022-blake3-aes-256-gcm`，同时监听同端口 TCP/UDP。
 
 先通过 `@BotFather` 创建一个**专用于本节点**的 Bot，向它发送 `/start`，准备 Bot Token 和数字

@@ -105,7 +105,7 @@ tcp_keepalive_probe = 3
 listen = <span class="s">"0.0.0.0:443"</span>
 remote = <span class="s">"LANDING_IP:443"</span></pre></div>
     <h3>客户端怎么改</h3>
-    <p>把节点里的<strong>服务器地址与端口</strong>换成 <span class="code-inline">RELAY_IP:443</span>；<strong>UUID、flow、SNI、REALITY 公钥(pbk)、short id(sid) 等一律保持落地机生成的原值</strong>。当前版本统一使用 <span class="code-inline">www.usc.edu</span> 作为 SNI，中转机不得改写。</p>
+    <p>把节点里的<strong>服务器地址与端口</strong>换成 <span class="code-inline">RELAY_IP:443</span>；<strong>UUID、flow、SNI、REALITY 公钥(pbk)、short id(sid) 等一律保持落地机生成的原值</strong>，中转机不得改写。</p>
     <h3>必须满足</h3>
     <ul>
       <li>转发协议是 <strong>TCP</strong>；不要给这条 REALITY 链加 PROXY protocol。</li>

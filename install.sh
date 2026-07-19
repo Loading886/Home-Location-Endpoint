@@ -95,7 +95,7 @@ Usage: sudo bash install.sh [options]
 
 Advanced mode installs a Telegram location bot. For unattended installation, pass
 HLE_TELEGRAM_BOT_TOKEN and HLE_TELEGRAM_CHAT_ID in the environment.
---port and --server apply to proxy modes. REALITY SNI is fixed to www.usc.edu.
+--port and --server apply to proxy modes. REALITY uses the installer-managed target.
 Remove a completed installation later with: sudo hle uninstall
 The installer never changes SSH ports, keys, or passwords. Proxy modes may add their TCP port, plus UDP for SS2022, to an already-active UFW policy.
 EOF

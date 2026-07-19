@@ -6,7 +6,7 @@
 - 代理模式只支持 `amd64`、`arm64`，并要求不存在其他 Xray 安装或同端口监听。
 - 代理模式至少准备 200 MiB 根分区空间；仅定位模式至少 50 MiB。低于 384 MiB RAM 会警告，
   不建议在同时承载大量代理连接时忽略。
-- 确认落地机能访问 GitHub、IPWHOIS、Nominatim、`www.usc.edu:443` 和 Apple 源站。
+- 确认落地机能访问 GitHub、IPWHOIS、Nominatim、安装器管理的 REALITY target 和 Apple 源站。
 - 云安全组、NAT 和上游防火墙由操作者负责。安装器只会在 UFW 已经处于 active 时加入 TCP
   端口；SS2022 还会加入同端口 UDP。
 - 进阶模式还需能访问 `api.telegram.org:443`，并准备专用 Bot Token 与数字 Chat ID。
@@ -34,7 +34,7 @@ SS2022 的 TCP 可经 Realm 转发，但其原生 UDP 不会经 TCP Realm 链路
 安装器和 `hle relocate` 共用 `/run/home-location-endpoint.lock`，并发操作会立即拒绝。重复安装：
 
 - 保留现有 VLESS UUID/X25519 key/short ID 或 SS2022 密钥，以及有效 CA；
-- 保持固定 REALITY SNI `www.usc.edu`，并生成新的随机 fallback 限速；
+- 保持安装器管理的 REALITY SNI，并生成新的随机 fallback 限速；
 - 重新选择城市内坐标；若外部定位服务暂时失败，则验证并保留旧坐标；
 - 进阶模式保留 Telegram 地点库与 Bot 凭据，并在修改文件前重新验证 Bot/Chat；
 - 叶证书或 CA 距到期不足 30 天时拒绝静默继续，要求显式 `--rotate-ca`。
@@ -186,7 +186,7 @@ Linux 脚本自动识别 VLESS/SS2022；`--test-udp` 还会做一次 SOCKS5 UDP 
   查看日志是否出现 `TRANSLATE` 或 `WIFITILE_TRANSLATE`。
 - **定位不可用**：查看 `TRANSLATE_FAIL_CLOSED`、`WIFITILE_FAIL_CLOSED`、证书信任和 Apple 是否
   改变协议。默认 fail-closed，解析不确定时不会悄悄返回真实坐标。
-- **固定 SNI 校验失败**：`www.usc.edu:443` 必须从该机通过有效证书、TLS 1.3 和 HTTP/2 现场
+- **固定 SNI 校验失败**：安装器管理的 REALITY target 必须从该机通过有效证书、TLS 1.3 和 HTTP/2 现场
   校验，实际对端 IP 还必须是公网地址；安装器不会自动换用其他 SNI。
 - **Telegram 菜单不响应**：确认专用 Bot 已收到 `/start`、Chat ID 正确、没有其他轮询消费者，
   并查看 `hle verify` 的 `Telegram Bot API heartbeat` 与 Bot journal。

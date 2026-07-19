@@ -4,6 +4,9 @@ set -Eeuo pipefail
 VERSION="v26.3.27"
 ASSET="Xray-linux-64.zip"
 SHA256="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
+REALITY_SNI="$(sed -n 's/^REALITY_SNI="\([^"]*\)"$/\1/p' install.sh)"
+REALITY_TARGET="$(sed -n 's/^REALITY_TARGET="\([^"]*\)"$/\1/p' install.sh)"
+[[ -n "${REALITY_SNI}" && -n "${REALITY_TARGET}" ]]
 TEMPORARY="$(mktemp -d)"
 trap 'rm -rf "${TEMPORARY}"' EXIT
 
@@ -27,7 +30,7 @@ PYTHONPATH=src python3 -m home_location_endpoint.render \
     --profile "${TEMPORARY}/profile.mobileconfig" \
     --ca-der "${TEMPORARY}/ca.der" \
     --server 203.0.113.9 --port 443 --uuid "${CLIENT_UUID}" \
-    --reality-sni www.usc.edu --reality-target www.usc.edu:443 \
+    --reality-sni "${REALITY_SNI}" --reality-target "${REALITY_TARGET}" \
     --private-key="${PRIVATE_KEY}" --public-key="${PUBLIC_KEY}" \
     --short-id 0123456789abcdef \
     --listen :: \

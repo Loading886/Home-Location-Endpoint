@@ -25,10 +25,13 @@ class InstallAssetTests(unittest.TestCase):
         self.assertIsNotNone(package_version)
         self.assertEqual(project_version.group(1), package_version.group(1))
 
-    def test_installer_uses_only_the_fixed_reality_sni(self):
+    def test_installer_uses_only_one_managed_reality_target(self):
         installer = (ROOT / "install.sh").read_text(encoding="utf-8")
-        self.assertIn('REALITY_SNI="www.usc.edu"', installer)
-        self.assertIn('REALITY_TARGET="www.usc.edu:443"', installer)
+        sni = re.search(r'^REALITY_SNI="([^"]+)"$', installer, re.MULTILINE)
+        target = re.search(r'^REALITY_TARGET="([^"]+)"$', installer, re.MULTILINE)
+        self.assertIsNotNone(sni)
+        self.assertIsNotNone(target)
+        self.assertEqual(target.group(1), "%s:443" % sni.group(1))
         self.assertNotIn("reality-sni.txt", installer)
         self.assertNotIn("shuf", installer)
         self.assertNotIn("--reality-sni)", installer)

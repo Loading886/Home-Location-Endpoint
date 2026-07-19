@@ -21,8 +21,7 @@
 - 可交互选择新手、进阶或高手模式。
 - 新手模式生成 VLESS + REALITY + Vision 节点；进阶模式还可选择
   `2022-blake3-aes-256-gcm` SS2022，并输出标准 `ss://` URI。
-- VLESS + REALITY 固定使用 `www.usc.edu:443` 作为 SNI/target，并在落地机现场校验证书、
-  TLS 1.3 与 HTTP/2。
+- VLESS + REALITY 使用安装器统一管理的 SNI/target，并在落地机现场校验证书、TLS 1.3 与 HTTP/2。
 - 进阶模式安装单操作者 Telegram Bot：输入框旁提供命令菜单，以蓝/绿/红状态按钮切换、增加、
   删除地点，并可一键恢复真实定位；十个内置地点入口统一使用中文短名。
 - 每次进阶安装为洛杉矶、东京、香港、新加坡、吉隆坡、巴黎、法兰克福、雷克雅未克和南极
@@ -116,8 +115,8 @@ curl -fsSL https://raw.githubusercontent.com/Loading886/Home-Location-Endpoint/m
   | sudo bash -s -- --mode modifier-only
 ```
 
-VLESS 模式固定使用 `www.usc.edu` 作为 REALITY SNI，并连接 `www.usc.edu:443`。安装时仍会从落地
-服务器现场检查证书链、主机名、TLS 1.3 和 HTTP/2；检查失败会停止安装，不会回退到其他 SNI。
+VLESS 模式使用安装器内置且统一管理的 REALITY SNI/target。安装时会从落地服务器现场检查证书
+链、主机名、TLS 1.3 和 HTTP/2；检查失败会停止安装，不会静默回退到其他 SNI。
 安装器不再接受 `--reality-sni` 或 `--reality-target` 覆盖，避免不同节点产生参数漂移。
 
 默认 URI 中的服务器地址来自落地机检测到的公网**出口** IP。若落地机位于 NAT 后、入口与出口
