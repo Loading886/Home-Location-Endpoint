@@ -14,6 +14,8 @@ class InterceptorTests(unittest.TestCase):
     def setUp(self):
         with interceptor._recent_wifi_lock:
             interceptor._recent_wifi.clear()
+        with interceptor._recent_request_wifi_lock:
+            interceptor._recent_request_wifi.clear()
         with interceptor._wifi_template_lock:
             interceptor._wifi_template_cache.update(payload=None, seen=None)
 
@@ -228,6 +230,84 @@ class InterceptorTests(unittest.TestCase):
             )
             self.assertEqual(interceptor.recent_wifi_values(now=12), [])
 
+    def test_normal_tile_cache_keeps_only_phone_requested_bssids(self):
+        requested = 0x112233445566
+        response_only = 0xAABBCCDDEEFF
+        response = gx.build_response([
+            gx.build_wifi(
+                "aa:bb:cc:dd:ee:ff",
+                gx.build_location(31.0, 121.0, 30),
+            ),
+        ])
+        learned = interceptor.remember_wloc_wifi(
+            request_body=build_wloc_request([requested]),
+            response_body=response,
+            now=200,
+        )
+        self.assertEqual(learned, 2)
+        self.assertEqual(
+            interceptor.recent_request_wifi_values(now=200),
+            [requested],
+        )
+        self.assertEqual(
+            set(interceptor.recent_wifi_values(now=200)),
+            {requested, response_only},
+        )
+
+    def test_wifi_tile_200_rewrite_adds_missing_requested_bssid(self):
+        original = build_tile_with_bssids([(123, 1.25, 2.5)])
+        body, count, anchor, injected = interceptor.rewrite_wifi_tile_response(
+            gzip.compress(original, mtime=0),
+            "gzip",
+            48.8566,
+            2.3522,
+            recent_bssids=[123, 456],
+        )
+        plain = gzip.decompress(body)
+        self.assertEqual(count, 1)
+        self.assertEqual(injected, 1)
+        self.assertEqual(anchor, (1.25, 2.5))
+        self.assertEqual(set(wx.decode_bssids(plain)), {123, 456})
+        self.assertEqual(len(wx.decode_locations(plain)), 2)
+
+    def test_wifi_tile_200_handle_uses_only_recent_requested_bssids(self):
+        interceptor._remember_request_wifi_values(["00:00:00:00:01:c8"])
+        original = build_tile_with_bssids([(123, 1.25, 2.5)])
+        conn = mock.Mock()
+        tls = mock.Mock()
+        tls.makefile.return_value = io.BytesIO(
+            b"GET /wifi_request_tile HTTP/1.1\r\n"
+            b"Host: gspe85-ssl.ls.apple.com\r\n\r\n"
+        )
+        context = mock.Mock()
+        context.wrap_socket.return_value = tls
+        with (
+            mock.patch.object(interceptor, "modification_is_active", return_value=True),
+            mock.patch.object(
+                interceptor,
+                "fetch_upstream",
+                return_value=(
+                    "HTTP/1.1 200 OK",
+                    ["Content-Type: application/octet-stream"],
+                    {"content-type": "application/octet-stream"},
+                    original,
+                ),
+            ),
+            mock.patch.object(
+                interceptor, "active_target", return_value=(48.8566, 2.3522, 25)
+            ),
+            mock.patch.object(interceptor, "log") as log,
+        ):
+            interceptor.handle(conn, ("127.0.0.1", 12345), context)
+
+        _head, payload = tls.sendall.call_args.args[0].split(b"\r\n\r\n", 1)
+        self.assertEqual(set(wx.decode_bssids(payload)), {123, 456})
+        self.assertTrue(any(
+            "WIFITILE_TRANSLATE" in call.args[0]
+            and "injected=1" in call.args[0]
+            for call in log.call_args_list
+        ))
+
     def test_complete_wifi_template_is_translated_then_expires(self):
         payload = build_tile([(34.0, -118.0), (34.001, -117.999)])
         with mock.patch.object(interceptor, "WIFI_TEMPLATE_TTL", 10):
@@ -383,6 +463,40 @@ def build_tile(points):
         device = gx.len_field(wx.DEVICE_LOCATION_FIELD, location)
         devices += gx.len_field(wx.REGION_DEVICE_FIELD, device)
     return gx.len_field(wx.REGION_FIELD, bytes(devices))
+
+
+def build_tile_with_bssids(entries):
+    devices = bytearray()
+    for bssid, lat, lon in entries:
+        location = (
+            gx.tag(wx.LOCATION_LAT_FIELD, gx.WIRE_I32)
+            + wx._coordinate_bytes(lat)
+            + gx.tag(wx.LOCATION_LON_FIELD, gx.WIRE_I32)
+            + wx._coordinate_bytes(lon)
+        )
+        device = (
+            gx.tag(wx.DEVICE_BSSID_FIELD, gx.WIRE_VARINT)
+            + gx.write_varint(bssid)
+            + gx.len_field(wx.DEVICE_LOCATION_FIELD, location)
+        )
+        devices += gx.len_field(wx.REGION_DEVICE_FIELD, device)
+    return gx.len_field(wx.REGION_FIELD, bytes(devices))
+
+
+def build_wloc_request(bssid_values):
+    payload = bytearray()
+    for value in bssid_values:
+        payload += gx.len_field(
+            2,
+            gx.len_field(1, int(value).to_bytes(6, "big")),
+        )
+    out = bytearray(b"\x00\x01")
+    for value in ("en-001_US", "com.apple.locationd", "26.5.23F77"):
+        encoded = value.encode("ascii")
+        out += len(encoded).to_bytes(2, "big") + encoded
+    out += (1).to_bytes(4, "big")
+    out += len(payload).to_bytes(4, "big") + payload
+    return bytes(out)
 
 
 if __name__ == "__main__":

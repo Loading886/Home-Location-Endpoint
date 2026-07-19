@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.2.6 - 2026-07-19
+
+- Supplement normal WifiTile 200 responses with recent phone-requested BSSIDs
+  that are missing a usable location from Apple's tile.
+- Keep request-only identities separate from the larger WLOC response cache,
+  deduplicate additions, preserve the original protobuf and transport contract,
+  and log only the injected count.
+- Document the single-operator cache boundary and iOS negative-cache recovery
+  procedure without weakening or restarting the server-side interceptor.
+
 ## 0.2.5 - 2026-07-19
 
 - Keep the bounded recent Wi-Fi identity cache warm for 30 minutes so sparse

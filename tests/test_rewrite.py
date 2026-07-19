@@ -228,6 +228,37 @@ class WifiTileRewriteTests(unittest.TestCase):
             0.1,
         )
 
+    def test_supplement_adds_only_missing_located_bssids(self):
+        original = build_tile_with_bssids([(123, 1.0, 2.0)])
+        unknown = gx.tag(17, gx.WIRE_VARINT) + gx.write_varint(42)
+        original += unknown
+        supplemented, count = wx.supplement_wifi_tile(
+            original,
+            [123, 456, 456, -1, 1 << 48, "invalid"],
+            48.8566,
+            2.3522,
+        )
+        self.assertEqual(count, 1)
+        self.assertEqual(set(wx.decode_bssids(supplemented)), {123, 456})
+        self.assertEqual(len(wx.decode_locations(supplemented)), 2)
+        self.assertIn(unknown, supplemented)
+        self.assertTrue(supplemented.startswith(original))
+
+    def test_supplement_replaces_unlocated_identity_with_located_entry(self):
+        unlocated = gx.len_field(
+            wx.REGION_FIELD,
+            gx.len_field(
+                wx.REGION_DEVICE_FIELD,
+                gx.tag(wx.DEVICE_BSSID_FIELD, gx.WIRE_VARINT)
+                + gx.write_varint(123),
+            ),
+        )
+        supplemented, count = wx.supplement_wifi_tile(
+            unlocated, [123], 35.0, 139.0
+        )
+        self.assertEqual(count, 1)
+        self.assertEqual(wx.decode_bssids(supplemented), [123])
+
     def test_wifi_tile_representative_large_batch_stays_within_target_radius(self):
         source = (34.0, -118.0)
         target = (40.0, -74.0)
@@ -305,6 +336,24 @@ def build_tile(points):
             + wx._coordinate_bytes(lon)
         )
         device = gx.len_field(wx.DEVICE_LOCATION_FIELD, location)
+        devices += gx.len_field(wx.REGION_DEVICE_FIELD, device)
+    return gx.len_field(wx.REGION_FIELD, bytes(devices))
+
+
+def build_tile_with_bssids(entries):
+    devices = bytearray()
+    for bssid, lat, lon in entries:
+        location = (
+            gx.tag(wx.LOCATION_LAT_FIELD, gx.WIRE_I32)
+            + wx._coordinate_bytes(lat)
+            + gx.tag(wx.LOCATION_LON_FIELD, gx.WIRE_I32)
+            + wx._coordinate_bytes(lon)
+        )
+        device = (
+            gx.tag(wx.DEVICE_BSSID_FIELD, gx.WIRE_VARINT)
+            + gx.write_varint(bssid)
+            + gx.len_field(wx.DEVICE_LOCATION_FIELD, location)
+        )
         devices += gx.len_field(wx.REGION_DEVICE_FIELD, device)
     return gx.len_field(wx.REGION_FIELD, bytes(devices))
 
