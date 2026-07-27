@@ -219,6 +219,67 @@ sudo journalctl -u home-location-endpoint --since <span class="s">'10 minutes ag
   </div>
 </section>
 
+<!-- FAQ -->
+<section id="faq" class="anchor">
+  <div class="container narrow">
+    <h2>常见问题</h2>
+
+    <h3>最新版 iOS 支持吗？</h3>
+    <p><strong>支持。</strong>如果使用时遇到问题，主要原因通常是网络定位权重不够高，或 iPhone 仍在使用旧定位缓存。</p>
+
+    <h3>使用问题排查与解决</h3>
+    <p>先确认使用的是项目最新版，然后按顺序操作：</p>
+    <ol start="0">
+      <li>远离窗边，不要在室外；否则 GPS 可能主导定位。进入 <strong>设置 → 隐私与安全性 → 定位服务</strong>，关闭顶部的「定位服务」。</li>
+      <li><strong>通常不需要重启。</strong>如需清理旧缓存，最多重启一次即可。</li>
+      <li>开机后尽快用<strong>全局模式</strong>连接运行本项目的落地机，避免系统先生成更多旧定位缓存。</li>
+      <li>重新开启「定位服务」。</li>
+      <li>打开 Apple 地图，检查位置是否已经变成新地点。</li>
+      <li>如果没变，强制退出地图，再关闭「定位服务」，等待 5–10 秒。</li>
+      <li>重新开启「定位服务」，再次打开 Apple 地图。</li>
+    </ol>
+
+    <h3>做到第 6 步仍未成功，怎么看现象？</h3>
+    <h4>状态 A：有定位蓝点，但仍是真实位置</h4>
+    <ul>
+      <li>可能仍有定位缓存：重复几次第 5–6 步，观察能否转为状态 B 或新地点。</li>
+      <li>可能是服务器配置或链路问题：运行 <span class="code-inline">sudo hle status</span> 检查服务，并确认客户端正在使用全局模式。</li>
+      <li>可能收到较强 GPS 信号：移到更深的室内并远离窗边。</li>
+    </ul>
+
+    <h4>状态 B：定位蓝点消失，地图重新加载后空白</h4>
+    <p>这通常说明已经成功了一半：旧定位缓存正在与服务器下发的新定位竞争。退出地图后重新进入，主动触发几次刷新，让系统更快清理旧缓存并接受新定位。</p>
+
+    <h3>为什么等一会儿又会正常？</h3>
+    <p>实测 iOS 的 <span class="code-inline">locationd</span> 本地 AP 缓存龄约为 <strong>14.5 分钟</strong>。快时一两分钟即可生效；如果什么也不做，通常等待约 15 分钟也会逐渐切换到新地点。</p>
+
+    <h3>使用手机流量 + VPN 时需要打开 Wi-Fi 吗？</h3>
+    <p><strong>需要。</strong>Wi-Fi 可以不连接任何无线网络，但 Wi-Fi 开关必须保持开启，否则系统可用的网络定位信息会不足。</p>
+
+    <div class="callout callout-tip" style="margin-top:26px"><span class="ico">▶️</span><p><a href="https://www.youtube.com/shorts/oeRu1-UHono" target="_blank" rel="noopener"><strong>观看使用效果演示视频</strong></a></p></div>
+
+    <details class="disclosure">
+      <summary>怎样选择尽量收不到 GPS 的室内位置？</summary>
+      <div class="disclosure-body">
+        <p>GPS 定位通常需要同时获得至少 4 颗卫星，而 GPS 在地面的信号本来就非常微弱，并且依赖较好的天空视野。</p>
+        <p>土层、墙体和楼板会让信号进一步衰减。</p>
+        <p>因此，关键不是“找一面墙挡住手机”，而是让手机从各个方向看到的天空范围尽可能接近零。</p>
+        <div class="table-wrap"><table style="min-width:680px">
+          <tr><th>位置</th><th>避免 GPS 接收的效果</th><th>选择要点</th></tr>
+          <tr><td><strong>大型建筑 B2、B3 或更深的地下空间中央</strong></td><td>★★★★★</td><td>地下停车场、地下商场、深层地铁站；必须远离车道坡口、出口和采光井</td></tr>
+          <tr><td><strong>地下无窗房间或地下商业层的最内侧区域</strong></td><td>★★★★★</td><td>上方和四周都有混凝土，附近没有贯通室外的开口</td></tr>
+          <tr><td><strong>大型商场、医院、办公塔楼低层的中央内区</strong></td><td>★★★★☆</td><td>靠近建筑核心区，但不要处于中庭、电梯厅大开口或玻璃穹顶附近</td></tr>
+          <tr><td><strong>低层商场里的电影院、内部仓库、无窗服务走廊</strong></td><td>★★★★☆</td><td>前提是电影院不是位于建筑顶层，且远离外墙</td></tr>
+          <tr><td><strong>普通钢筋混凝土住宅或办公室的无窗内间</strong></td><td>★★☆☆☆ 至 ★★★☆☆</td><td>效果取决于建筑厚度和离窗户的距离，通常不能保证</td></tr>
+          <tr><td><strong>靠外墙、窗边、玻璃幕墙附近</strong></td><td>★☆☆☆☆</td><td>即使人在室内，手机仍可能从窗口方向收到多颗卫星</td></tr>
+          <tr><td><strong>顶层、阁楼、玻璃顶、中庭、采光井附近</strong></td><td>☆☆☆☆☆</td><td>上方天空暴露较多，通常最不适合</td></tr>
+          <tr><td><strong>仅仅躲在屋檐下、桥下或两栋楼之间</strong></td><td>★☆☆☆☆</td><td>只能挡住部分天空，剩余方向通常仍有卫星可见</td></tr>
+        </table></div>
+      </div>
+    </details>
+  </div>
+</section>
+
 <footer>
   <div class="container">
     <div class="foot-grid">

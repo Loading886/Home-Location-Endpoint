@@ -5,6 +5,8 @@
 - Rewrite the public website FAQ around iOS positioning priority and locationd
   cache recovery, clarify that profile download methods are alternatives, and
   collapse optional browser and TCP 18080 troubleshooting details.
+- Extend the same FAQ to the modifier-only guide and add a collapsible reference
+  for choosing indoor locations where GPS reception is least likely to dominate.
 
 ## 0.3.0 - 2026-07-19
 
