@@ -39,7 +39,7 @@
 <section class="section-tight">
   <div class="container narrow">
     <div class="callout callout-note"><span class="ico">🧭</span>
-      <p><strong>你将依次完成：</strong>① 准备落地机 → ② 创建 Telegram Bot → ③ 安装进阶模式 → ④ 读懂输出 → ⑤ 下载描述文件 → ⑥ 安装描述文件 → ⑦ 开启完全信任 → ⑧ 导入节点并全局连接 → ⑨ 重启手机 → ⑩ 验证定位 → ⑪ 使用 Telegram 菜单。</p>
+      <p><strong>你将依次完成：</strong>① 准备落地机 → ② 创建 Telegram Bot → ③ 安装进阶模式 → ④ 读懂输出 → ⑤ 任选一种方式下载描述文件 → ⑥ 安装描述文件 → ⑦ 开启完全信任 → ⑧ 导入节点并全局连接 → ⑨ 关闭定位服务、准备刷新 → ⑩ 开启定位并验证 → ⑪ 使用 Telegram 菜单。</p>
     </div>
   </div>
 </section>
@@ -148,15 +148,23 @@ sudo hle profile</pre></div>
 
     <!-- Step 5 -->
     <div class="step">
-      <h3>用一次性令牌链接把描述文件下载到 iPhone</h3>
+      <h3>任选一种方式把描述文件下载到 iPhone</h3>
       <div class="step-body">
-        <p>最简单的方式是在 Telegram Bot 菜单点击<strong>获取描述文件</strong>，直接打开收到的 `.mobileconfig` 附件。安装器提供的一次性令牌链接和终端二维码仍作为备用方式：保持当前终端打开，扫码或打开链接即可。</p>
-        <p>如果你按了 <span class="kbd">Ctrl+C</span>、链接过期，或者以后需要重新下载，再手动运行：</p>
+        <p><strong>下面三种方式任选一种即可，不需要依次全部操作：</strong></p>
+        <ol>
+          <li><strong>Telegram Bot（推荐）</strong>：在 Bot 菜单点击<strong>获取描述文件</strong>，直接打开收到的 <span class="code-inline">.mobileconfig</span> 附件。</li>
+          <li><strong>扫描终端二维码</strong>：保持安装终端打开，用 iPhone 自带「相机」扫码。</li>
+          <li><strong>Safari 打开链接</strong>：把终端显示的一次性地址发到 iPhone，再用 Safari 打开。</li>
+        </ol>
+        <p>第 2、3 种方式使用的是<strong>同一个一次性令牌</strong>，二选一即可；其中一种成功下载后，另一种会随即失效。如果链接过期、已使用，或者以后需要重新下载，再运行：</p>
         <div class="code"><pre>sudo hle profile serve</pre></div>
         <div class="callout callout-warn"><span class="ico">⏳</span>
           <p><strong>阅后即焚：</strong>下载链接默认<strong>有效 100 分钟</strong>，并且<strong>只要成功下载一次就立即失效</strong>、下载服务自动关闭。过期或用完了，再跑一次 <span class="code-inline">sudo hle profile serve</span> 重新生成即可。</p>
         </div>
-        <figure class="figure">
+        <details class="disclosure">
+          <summary>备用方式：查看终端二维码和一次性下载链接</summary>
+          <div class="disclosure-body">
+            <figure class="figure">
           <svg viewBox="0 0 900 320" role="img" aria-label="hle profile serve 终端输出与二维码">
             <rect x="0" y="0" width="900" height="320" rx="12" fill="#0f172a"/>
             <rect x="0" y="0" width="900" height="34" rx="12" fill="#1e293b"/>
@@ -195,17 +203,17 @@ sudo hle profile</pre></div>
             <text x="778" y="262" text-anchor="middle" font-size="12" fill="#94a3b8" font-family="monospace">iPhone 相机扫码</text>
           </svg>
           <figcaption>安装完成后，终端自动给出临时下载地址 + 二维码、CA 指纹、有效期与「下载次数：1」。</figcaption>
-        </figure>
-        <p>然后在 iPhone 上，二选一：</p>
-        <ul>
-          <li><strong>扫码</strong>：用 iPhone 自带「相机」对准终端里的二维码，点弹出的横幅。</li>
-          <li><strong>打开链接</strong>：用 <strong>Safari</strong> 打开终端输出的那个 <span class="code-inline">http://…:18080/…</span> 下载地址。</li>
-        </ul>
-        <p>用 <strong>Safari</strong> 打开通常最顺：会直接提示「此网站正尝试下载一个配置描述文件」，点<strong>允许</strong>，随后到设置里安装（下一步）。</p>
-        <div class="callout callout-note"><span class="ico">📂</span>
-          <p><strong>如果下载后没有直接弹出安装</strong>（用夸克 / QQ 等第三方浏览器扫码时很常见）：文件会先被存到浏览器的「下载 / 暂存」或「文件」App，<strong>不会</strong>自己打开。这时——到「文件」App 找到刚下载的 <strong>Home-Location-Endpoint-CA</strong>（约 2&nbsp;KB）→ 点它 → 在弹出的「选择设备 / Choose a Device」里点 <strong>iPhone</strong> →系统才会跳到「设置」里安装（下一步）。若只弹出分享菜单，选 <strong>存到文件</strong> 或 <strong>在 iPhone 上打开</strong> 再从「文件」里点开即可。</p>
-        </div>
-        <figure class="figure">
+            </figure>
+            <p>用 Safari 打开通常最顺：会直接提示「此网站正尝试下载一个配置描述文件」，点<strong>允许</strong>，随后到设置里安装（下一步）。</p>
+          </div>
+        </details>
+        <details class="disclosure">
+          <summary>如果下载后没有直接弹出安装</summary>
+          <div class="disclosure-body">
+            <div class="callout callout-note"><span class="ico">📂</span>
+              <p>用夸克、QQ 等第三方浏览器扫码时，文件可能先被存到浏览器的「下载 / 暂存」或「文件」App，<strong>不会</strong>自己打开。到「文件」App 找到刚下载的 <strong>Home-Location-Endpoint-CA</strong>（约 2&nbsp;KB）→ 点它 → 在弹出的「选择设备 / Choose a Device」里点 <strong>iPhone</strong>，系统才会跳到「设置」里安装（下一步）。若只弹出分享菜单，选 <strong>存到文件</strong> 或 <strong>在 iPhone 上打开</strong>，再从「文件」里点开即可。</p>
+            </div>
+            <figure class="figure">
           <svg viewBox="0 0 320 600" role="img" aria-label="下载后在文件里打开并选择 iPhone" style="max-width:290px">
             <rect x="6" y="6" width="308" height="588" rx="44" fill="#0b1220" stroke="var(--border-strong)" stroke-width="3"/>
             <rect x="16" y="16" width="288" height="568" rx="34" fill="#000000"/>
@@ -237,12 +245,19 @@ sudo hle profile</pre></div>
             <text x="160" y="527" font-size="15" fill="#fff" text-anchor="middle" font-weight="700">Cancel</text>
           </svg>
           <figcaption>第三方浏览器下载后：在「文件」里点开该文件 → 选 iPhone → 才会进入设置安装。用 Safari 则一般会直接提示安装。</figcaption>
-        </figure>
+            </figure>
+          </div>
+        </details>
         <div class="callout callout-note"><span class="ico">🔎</span><p><strong>核对指纹：</strong>终端打印的 CA SHA-256 指纹，应与下一步安装描述文件时看到的一致。</p></div>
-        <div class="callout callout-warn"><span class="ico">📡</span>
-          <p><strong>让手机能连到这个端口：</strong>该临时下载是 <strong>HTTP 明文</strong>，默认端口 <span class="code-inline">18080</span>。需要临时确保 TCP 18080 能从手机到达落地机（在云安全组/防火墙里临时放行，用完就关）——安装器不会自动改防火墙。若落地机在 NAT 后、用了 Realm 前置、或是仅定位模式没记录手机可达地址，请加参数 <span class="code-inline">--host 手机可访问的地址</span>。</p>
-        </div>
-        <p>想要更强的传输保护，可改用 SCP / SFTP 或自建可信 HTTPS。可调参数还有 <span class="code-inline">--port</span>、<span class="code-inline">--host</span>、<span class="code-inline">--bind</span>、<span class="code-inline">--timeout-minutes</span>、<span class="code-inline">--no-qr</span>。</p>
+        <details class="disclosure">
+          <summary>无法下载？排除故障：让手机能连到 18080 端口</summary>
+          <div class="disclosure-body">
+            <div class="callout callout-warn"><span class="ico">📡</span>
+              <p>该临时下载是 <strong>HTTP 明文</strong>，默认端口 <span class="code-inline">18080</span>。需要临时确保 TCP 18080 能从手机到达落地机（在云安全组/防火墙里临时放行，用完就关）——安装器不会自动改防火墙。若落地机在 NAT 后、用了 Realm 前置、或是仅定位模式没记录手机可达地址，请加参数 <span class="code-inline">--host 手机可访问的地址</span>。</p>
+            </div>
+            <p>想要更强的传输保护，可改用 SCP / SFTP 或自建可信 HTTPS。可调参数还有 <span class="code-inline">--port</span>、<span class="code-inline">--host</span>、<span class="code-inline">--bind</span>、<span class="code-inline">--timeout-minutes</span>、<span class="code-inline">--no-qr</span>。</p>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -358,12 +373,12 @@ sudo hle profile</pre></div>
       </div>
     </div>
 
-    <!-- Step 9: restart -->
+    <!-- Step 9: reset location services -->
     <div class="step">
-      <h3>重启一次 iPhone</h3>
+      <h3>关闭定位服务，准备首次验证</h3>
       <div class="step-body">
-        <p>描述文件装好、完全信任打开、节点也连上之后，<strong>把手机重启一次</strong>。重启能让系统定位服务干净地按新的证书信任与隧道路由生效，避免「装好了但定位没变」的中间状态。</p>
-        <div class="callout callout-tip"><span class="ico">🔁</span><p>关机再开机即可。开机后确认代理客户端仍是<strong>全局</strong>连接、描述文件与完全信任都还在。</p></div>
+        <p>进入 <strong>设置 → 隐私与安全性 → 定位服务</strong>，先关闭顶部的「定位服务」。保持在室内并远离窗边，避免 GPS 信号压过网络定位。</p>
+        <div class="callout callout-tip"><span class="ico">🔁</span><p><strong>通常不需要重启。</strong>如果此前已经积累了较多旧定位缓存，可在定位服务保持关闭时最多重启一次。开机后尽快用<strong>全局模式</strong>连上落地机，再进行下一步。</p></div>
       </div>
     </div>
 
@@ -371,7 +386,7 @@ sudo hle profile</pre></div>
     <div class="step">
       <h3>验证定位已经改变</h3>
       <div class="step-body">
-        <p>验证前，先进入 <strong>设置 → 隐私与安全性 → 定位服务</strong>，关闭顶部的「定位服务」，等待 5 秒后再重新打开，让系统重新请求定位结果。然后保持在<strong>室内</strong>（避免 GPS 盖过网络定位），把 Wi-Fi 打开着，打开「地图」App 点定位按钮。定位应落在你落地机所在的城市。</p>
+        <p>确认客户端已经使用<strong>全局模式</strong>连接落地机，并保持 Wi-Fi 开关开启（可以不连接任何无线网络）。然后重新开启「定位服务」，打开「地图」App 点定位按钮。定位应落在你选择的地点；若没有立即变化，按下方常见问题继续排查。</p>
         <figure class="figure">
           <svg viewBox="0 0 520 260" role="img" aria-label="地图定位改变示意">
             <rect x="0" y="0" width="520" height="260" rx="14" fill="#e8efe6"/>
@@ -441,25 +456,39 @@ sudo hle profile</pre></div>
   <div class="container narrow">
     <h2>常见问题</h2>
 
-    <h3>普通网页能上，但定位没变？</h3>
-    <p>先<strong>重启一次手机</strong>（第 ⑨ 步，最容易被忽略）。仍不行再检查：① 客户端是<strong>全局 / TUN</strong> 模式；② 第 ⑦ 步的证书信任开关已打开；③ 你在<strong>室内</strong>（户外 GPS 会盖过网络定位）；④ Wi-Fi 保持开启。落地机上运行 <span class="code-inline">sudo hle status</span> 查看服务状态。</p>
+    <h3>最新版 iOS 支持吗？</h3>
+    <p><strong>支持。</strong>如果使用时遇到问题，主要原因通常是网络定位权重不够高，或 iPhone 仍在使用旧定位缓存。</p>
 
-    <h3>节点链接连不上？</h3>
-    <p>如果落地机在 NAT 后、入口和出口 IP 不同、或你前面还有中转机，安装时检测到的地址可能不对。用 <span class="code-inline">--server 你的入口地址</span> 重新安装，并检查云厂商<strong>安全组</strong>是否放行了对应端口。详见<a href="/prerequisites.html">前置配置</a>。</p>
+    <h3>使用问题排查与解决</h3>
+    <p>先确认使用的是项目最新版，然后按顺序操作：</p>
+    <ol start="0">
+      <li>远离窗边，不要在室外；否则 GPS 可能主导定位。进入 <strong>设置 → 隐私与安全性 → 定位服务</strong>，关闭顶部的「定位服务」。</li>
+      <li><strong>通常不需要重启。</strong>如需清理旧缓存，最多重启一次即可。</li>
+      <li>开机后尽快用<strong>全局模式</strong>连接运行本项目的落地机，避免系统先生成更多旧定位缓存。</li>
+      <li>重新开启「定位服务」。</li>
+      <li>打开 Apple 地图，检查位置是否已经变成新地点。</li>
+      <li>如果没变，强制退出地图，再关闭「定位服务」，等待 5–10 秒。</li>
+      <li>重新开启「定位服务」，再次打开 Apple 地图。</li>
+    </ol>
 
-    <h3>描述文件装不上 / 提示未验证？</h3>
-    <p>「未验证」是正常的（自签 CA）。关键是装好后到<strong>证书信任设置</strong>里把开关打开。若 iOS 版本较新，安装入口在 <strong>设置 → 通用 → VPN 与设备管理</strong>。</p>
+    <h3>做到第 6 步仍未成功，怎么看现象？</h3>
+    <h4>状态 A：有定位蓝点，但仍是真实位置</h4>
+    <ul>
+      <li>可能仍有定位缓存：重复几次第 5–6 步，观察能否转为状态 B 或新地点。</li>
+      <li>可能是服务器配置或链路问题：运行 <span class="code-inline">sudo hle status</span> 检查服务，并确认客户端正在使用全局模式。</li>
+      <li>可能收到较强 GPS 信号：移到更深的室内并远离窗边。</li>
+    </ul>
 
-    <h3>定位在真假之间来回跳？</h3>
-    <p>一些 App 会综合多种信号（GPS、蓝牙、账号、IP）。本项目只改写 Apple <em>网络</em>定位，无法覆盖全部信号，结果可能不稳定。这是方案的固有局限，请阅读<a href="/#security">安全与局限</a>。</p>
+    <h4>状态 B：定位蓝点消失，地图重新加载后空白</h4>
+    <p>这通常说明已经成功了一半：旧定位缓存正在与服务器下发的新定位竞争。退出地图后重新进入，主动触发几次刷新，让系统更快清理旧缓存并接受新定位。</p>
 
-    <h3>怎样临时停止修改定位，但继续使用代理？</h3>
-    <p>在 Bot 菜单点击“真实定位”。它不会断开代理；需要恢复时，重新选择任意地点即可。</p>
+    <h3>为什么等一会儿又会正常？</h3>
+    <p>实测 iOS 的 <span class="code-inline">locationd</span> 本地 AP 缓存龄约为 <strong>14.5 分钟</strong>。快时一两分钟即可生效；如果什么也不做，通常等待约 15 分钟也会逐渐切换到新地点。</p>
 
-    <h3>Bot 没有回复或菜单不更新？</h3>
-    <p>先向 Bot 重新发送 <span class="code-inline">/start</span>，再在服务器运行 <span class="code-inline">sudo hle verify</span>。仍有问题时检查 Bot Token 是否被撤销、服务器能否访问 Telegram，以及这个 Bot 是否同时被其他程序使用。</p>
+    <h3>使用手机流量 + VPN 时需要打开 Wi-Fi 吗？</h3>
+    <p><strong>需要。</strong>Wi-Fi 可以不连接任何无线网络，但 Wi-Fi 开关必须保持开启，否则系统可用的网络定位信息会不足。</p>
 
-    <div class="callout callout-note" style="margin-top:26px"><span class="ico">➡️</span><p>落地机在 NAT 后、入口和出口 IP 不同，或前面需要中转？请继续查看 <a href="/prerequisites.html"><strong>前置配置</strong></a>。</p></div>
+    <div class="callout callout-tip" style="margin-top:26px"><span class="ico">▶️</span><p><a href="https://www.youtube.com/shorts/oeRu1-UHono" target="_blank" rel="noopener"><strong>观看使用效果演示视频</strong></a></p></div>
   </div>
 </section>
 

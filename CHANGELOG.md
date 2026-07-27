@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Rewrite the public website FAQ around iOS positioning priority and locationd
+  cache recovery, clarify that profile download methods are alternatives, and
+  collapse optional browser and TCP 18080 troubleshooting details.
+
 ## 0.3.0 - 2026-07-19
 
 - Promote complete WifiTile 200 response supplementation to a minor-version

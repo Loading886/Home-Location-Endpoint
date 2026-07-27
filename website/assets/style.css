@@ -277,6 +277,25 @@ figcaption { color: var(--text-mut); font-size: .9rem; text-align: center; margi
 .callout-warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 34%, var(--border)); }
 .callout-danger { background: var(--danger-bg); border-color: color-mix(in srgb, var(--danger) 34%, var(--border)); }
 
+/* ---------- optional troubleshooting disclosures ---------- */
+.disclosure {
+  margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); overflow: hidden;
+}
+.disclosure > summary {
+  position: relative; cursor: pointer; list-style: none; padding: 14px 46px 14px 16px;
+  color: var(--text); font-weight: 750;
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::after {
+  content: "+"; position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  color: var(--brand); font-size: 1.25rem; font-weight: 700;
+}
+.disclosure[open] > summary { border-bottom: 1px solid var(--border); }
+.disclosure[open] > summary::after { content: "−"; }
+.disclosure-body { padding: 2px 16px 16px; }
+.disclosure-body > :last-child { margin-bottom: 0; }
+
 /* ---------- table ---------- */
 .table-wrap { overflow-x: auto; margin: 18px 0; border:1px solid var(--border); border-radius: var(--radius-sm); }
 table { border-collapse: collapse; width: 100%; font-size: .95rem; }
